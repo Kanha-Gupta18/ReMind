@@ -1,7 +1,7 @@
 """Shared fixtures for the API test suite.
 
 Tests run against a dedicated PostgreSQL database (`remind_test`) so the
-development data is never touched. The schema is dropped and recreated
+development data is never touched. A unique schema is migrated and removed
 once per pytest session, and each test wipes the rows its own users own,
 so tests stay independent.
 
@@ -14,15 +14,12 @@ The test DB is chosen by TEST_DATABASE_URL (defaults to the local
 
 import os
 import shutil
-import tempfile
+from tests import runtime
 
 # Point the app at the dedicated test database BEFORE any app module is
 # imported, because `app.core.config.Settings` reads DATABASE_URL once at
 # import time (real env vars win over the .env file).
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL",
-    "postgresql+psycopg://remind:remind_dev@localhost:5432/remind_test",
-)
+TEST_DATABASE_URL = runtime.SCOPED_DATABASE_URL
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 # Uploaded files must land in a throwaway temp directory, never the dev
@@ -30,7 +27,7 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 # conftest.py is imported twice (as a pytest plugin and as `tests.conftest`
 # via `from tests.conftest import ...`), so reuse the env value if present
 # rather than creating two different temp dirs.
-TEST_STORAGE_DIR = os.environ.get("STORAGE_DIR") or tempfile.mkdtemp(prefix="remind_test_storage_")
+TEST_STORAGE_DIR = runtime.STORAGE_DIR
 os.environ["STORAGE_DIR"] = TEST_STORAGE_DIR
 
 import pytest
@@ -56,17 +53,26 @@ TEST_DOMAIN = "@remind.dev"
 
 @pytest.fixture(scope="session", autouse=True)
 def _test_db_schema():
-    """Recreate the test schema once per session; clean up afterwards."""
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    yield
-    # A request session can be left open by a dead TestClient thread; close
-    # every tracked session first so their transactions release the row/table
-    # locks that would otherwise block the final DROP TABLE forever.
+    """Migrate an isolated schema, then remove only resources this run owns."""
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import create_engine, text
     from sqlalchemy.orm import close_all_sessions
-    close_all_sessions()
-    Base.metadata.drop_all(bind=engine)
-    shutil.rmtree(TEST_STORAGE_DIR, ignore_errors=True)
+
+    control = create_engine(runtime.DATABASE_URL)
+    try:
+        with control.begin() as connection:
+            connection.execute(text(f'CREATE SCHEMA "{runtime.SCHEMA}"'))
+        command.upgrade(Config("alembic.ini"), "head")
+        command.check(Config("alembic.ini"))
+        yield
+    finally:
+        close_all_sessions()
+        engine.dispose()
+        with control.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA IF EXISTS "{runtime.SCHEMA}" CASCADE'))
+        control.dispose()
+        shutil.rmtree(runtime.STORAGE_DIR)
 
 
 def wipe(db: Session, user_ids: list[str]) -> None:

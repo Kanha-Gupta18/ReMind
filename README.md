@@ -58,7 +58,7 @@ ReMind/
 
 ### Requirements
 
-- Node.js 20 or newer
+- Node.js 22.12 or newer (CI uses Node.js 22)
 - Python 3.11 or newer
 - PostgreSQL 15 or newer
 
@@ -106,7 +106,11 @@ The web app is served at `http://localhost:3000` and expects the API at `http://
 
 ## Tests
 
-Backend tests require the dedicated `remind_test` PostgreSQL database:
+Backend tests require a dedicated PostgreSQL database whose name ends in `_test`.
+Override `TEST_DATABASE_URL` to select it. Each run creates a unique schema,
+applies Alembic migrations, checks model/schema consistency, and removes only
+that schema afterward. Uploaded test files always use a newly allocated temporary
+directory, even when `STORAGE_DIR` is configured for the application.
 
 ```powershell
 cd services/api
