@@ -1,0 +1,17 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Secrets - never commit real credentials
+.env
+
+# Runtime data
+storage/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
