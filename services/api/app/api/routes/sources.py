@@ -26,7 +26,7 @@ from app.models.constants import DeletionStatus, Role
 from app.models.memory import Source
 from app.models.user import User
 from app.schemas.source import SourceCreate
-from app.services import audit_service, notification_service
+from app.services import audit_service, notification_service, patient_delivery_service
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -125,6 +125,8 @@ def upload_source(
     scope: Annotated[str | None, Depends(get_patient_scope)] = None,
 ):
     pid = _scope_patient(scope, current, patient_id)
+    if body.storage_path is not None:
+        raise HTTPException(status_code=422, detail="Use the upload endpoint to store files")
     source = Source(
         patient_id=pid,
         uploaded_by=current.id,
@@ -146,6 +148,7 @@ def upload_source(
 @router.get("")
 def list_sources(
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(get_current_user)],
     scope: Annotated[str | None, Depends(get_patient_scope)],
     status_filter: str | None = None,
 ):
@@ -155,17 +158,22 @@ def list_sources(
     if status_filter:
         query = query.filter(Source.status == status_filter)
     sources = query.order_by(Source.created_at.desc()).all()
-    return {"items": [_serialize(s, detail=False) for s in sources], "count": len(sources)}
+    if current.role == Role.PATIENT.value:
+        sources = [s for s in sources if patient_delivery_service.source_is_visible(db, s)]
+    return {"items": [_serialize(s, detail=False, patient=current.role == Role.PATIENT.value)
+                      for s in sources], "count": len(sources)}
 
 
 @router.get("/{source_id}")
 def get_source(
     source_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(get_current_user)],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     source = _get_scoped(db, source_id, scope)
-    return _serialize(source, detail=True)
+    _require_source_read(db, source, current)
+    return _serialize(source, detail=True, patient=current.role == Role.PATIENT.value)
 
 
 @router.post("/{source_id}/process")
@@ -212,13 +220,20 @@ def reconstruct_source(
 def get_source_file(
     source_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(get_current_user)],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     source = _get_scoped(db, source_id, scope)
-    if not source.storage_path or not os.path.exists(source.storage_path):
+    _require_source_read(db, source, current)
+    if not source.storage_path:
+        raise HTTPException(status_code=404, detail="Source file is not stored")
+    path = Path(source.storage_path).resolve()
+    root = Path(settings.storage_dir).resolve()
+    expected = (root / source.patient_id / source.id).resolve()
+    if not expected.is_relative_to(root) or not path.is_relative_to(expected) or not path.is_file():
         raise HTTPException(status_code=404, detail="Source file is not stored")
     media_type = mimetypes.guess_type(source.file_name)[0] or "application/octet-stream"
-    return FileResponse(source.storage_path, media_type=media_type, filename=source.file_name)
+    return FileResponse(path, media_type=media_type, filename=source.file_name)
 
 
 @router.delete("/{source_id}")
@@ -246,7 +261,12 @@ def _get_scoped(db: Session, source_id: str, scope: str | None) -> Source:
     return source
 
 
-def _serialize(s: Source, detail: bool) -> dict:
+def _require_source_read(db: Session, source: Source, current: User) -> None:
+    if current.role == Role.PATIENT.value and not patient_delivery_service.source_is_visible(db, source):
+        raise HTTPException(status_code=403, detail="Source is not available to the patient")
+
+
+def _serialize(s: Source, detail: bool, patient: bool = False) -> dict:
     data = {
         "id": s.id,
         "patient_id": s.patient_id,
@@ -255,11 +275,11 @@ def _serialize(s: Source, detail: bool) -> dict:
         "file_size": s.file_size,
         "status": s.status,
         "pipeline_type": s.pipeline_type,
-        "context_tags": s.context_tags or [],
+        "context_tags": [] if patient else (s.context_tags or []),
         "created_at": s.created_at.isoformat(),
         "completed_at": s.completed_at.isoformat() if s.completed_at else None,
     }
-    if detail:
+    if detail and not patient:
         data.update({
             "uploaded_by": s.uploaded_by,
             "storage_path": s.storage_path,

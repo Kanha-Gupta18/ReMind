@@ -20,6 +20,8 @@ from app.core.database import get_db
 from app.models.clinical import EngagementLog
 from app.models.constants import (
     EngagementAction,
+    DeletionStatus,
+    EvidenceReviewStatus,
     MemoryStatus,
     Role,
     Visibility,
@@ -27,7 +29,13 @@ from app.models.constants import (
 from app.models.memory import MemoryCard
 from app.models.user import User
 from app.schemas.memory import EngageAction, MemoryCreate, MemoryEdit, ReviewAction
-from app.services import audit_service, evidence_service, memory_service, safety_service
+from app.services import (
+    audit_service,
+    evidence_service,
+    memory_service,
+    patient_delivery_service,
+    safety_service,
+)
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 
@@ -80,7 +88,7 @@ def get_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = memory_service.get_memory(db, memory_id)
-    if memory is None:
+    if memory is None or memory.status == MemoryStatus.DELETED.value:
         raise HTTPException(status_code=404, detail="Memory not found")
     _patient_from_scope(scope, memory)
 
@@ -243,6 +251,7 @@ def edit_memory(
 def get_revisions(
     memory_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(require_roles(*_READ_EVERYTHING))],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
@@ -259,10 +268,18 @@ def get_revisions(
 def get_evidence(
     memory_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(get_current_user)],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
+    _require_release(db, memory, current)
     provenance = evidence_service.get_memory_provenance(db, memory.id)
+    if current.role == Role.PATIENT.value:
+        provenance = [p for p in provenance
+                      if p["evidence"].review_status == EvidenceReviewStatus.ACCEPTED.value
+                      and (not p["evidence"].source_id or
+                           (p["source"] and p["source"].patient_id == memory.patient_id
+                            and p["source"].deletion_status == DeletionStatus.ACTIVE.value))]
     return {"items": [
         {"id": p["evidence"].id,
          "claim": p["evidence"].claim,
@@ -284,6 +301,7 @@ def engage(
     memory = memory_service.get_memory(db, memory_id)
     if memory is None or memory.patient_id != current.id:
         raise HTTPException(status_code=403, detail="Not your memory")
+    _require_release(db, memory, current)
     log = EngagementLog(
         patient_id=current.id, memory_card_id=memory.id,
         action=body.action, duration_ms=body.duration_ms,
@@ -295,10 +313,15 @@ def engage(
 
 def _get_scoped(db: Session, memory_id: str, scope: str | None) -> MemoryCard:
     memory = memory_service.get_memory(db, memory_id)
-    if memory is None:
+    if memory is None or memory.status == MemoryStatus.DELETED.value:
         raise HTTPException(status_code=404, detail="Memory not found")
     _patient_from_scope(scope, memory)
     return memory
+
+
+def _require_release(db: Session, memory: MemoryCard, current: User) -> None:
+    if current.role == Role.PATIENT.value and not patient_delivery_service.memory_is_visible(db, memory):
+        raise HTTPException(status_code=403, detail="Memory is not available to the patient")
 
 
 def _serialize(db: Session, m: MemoryCard, detail: bool) -> dict:

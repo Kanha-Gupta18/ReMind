@@ -136,6 +136,8 @@ def test_cross_tenant_isolation(client, tokens):
 
 def test_engage(client, tokens):
     mem_id = _create_memory(client, tokens["patient"]).json()["id"]
+    client.post(f"/memories/{mem_id}/submit", headers=auth(tokens["reviewer"]))
+    client.post(f"/memories/{mem_id}/approve", headers=auth(tokens["reviewer"]))
     r = client.post(f"/memories/{mem_id}/engage", json={"action": "viewed", "duration_ms": 5000},
                     headers=auth(tokens["patient"]))
     assert r.status_code == 200

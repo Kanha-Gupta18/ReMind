@@ -1,7 +1,8 @@
 """Knowledge graph routes: export, nodes, edges, review, trace (spec §9, §24).
 
 RBAC:
-  - everyone in scope may read the graph (patients see their own)
+  - family and support roles may read the review graph; patient-facing graph
+    facts are delivered through filtered people and conversation routes
   - reviewer/guardian/admin confirm or dispute edges (review lifecycle)
   - contributor may create suggested edges
 """

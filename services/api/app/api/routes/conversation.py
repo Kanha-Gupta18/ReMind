@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.ai import conversation as agent
 from app.api.deps import get_current_user, get_patient_scope, require_roles
 from app.core.database import get_db
-from app.models.constants import Role
+from app.models.constants import ConversationSessionStatus, Role
 from app.models.conversation import ConversationSession
 from app.models.user import User
 from app.schemas.conversation import MessageSend, SessionStart
@@ -70,9 +70,13 @@ def list_sessions(
 def get_messages(
     session_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(require_roles(*_READ_ROLES))],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     session = _get_scoped(db, session_id, scope)
+    if current.role == Role.PATIENT.value:
+        messages = agent.patient_session_history(db, session)
+        return {"items": messages, "count": len(messages)}
     messages = agent.session_history(db, session.id)
     return {"items": [
         {"id": m.id, "role": m.role, "content": m.content,
@@ -92,9 +96,15 @@ def send_message(
     session = db.get(ConversationSession, session_id)
     if session is None or session.patient_id != current.id:
         raise HTTPException(status_code=403, detail="Not your session")
+    if session.status != ConversationSessionStatus.ACTIVE.value:
+        raise HTTPException(status_code=409, detail="Conversation session is not active")
     result = agent.respond(db, session_id, body.content)
     db.commit()
-    return result
+    return {
+        "reply": result["reply"],
+        "tool_calls": [{"tool": item["tool"]} for item in result["tool_calls"]],
+        "safety_flag": result["safety_flag"],
+    }
 
 
 @router.post("/sessions/{session_id}/stop")

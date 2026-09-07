@@ -26,6 +26,11 @@ from app.models.base import utcnow
 from app.models.constants import (
     ConversationSessionStatus,
     ConversationSessionType,
+    DeletionStatus,
+    EdgeStatus,
+    EvidenceReviewStatus,
+    FaceMatchState,
+    IdentityStatus,
     MemoryStatus,
     MessageRole,
     NotificationType,
@@ -40,6 +45,7 @@ from app.services import (
     graph_service,
     memory_service,
     notification_service,
+    patient_delivery_service,
     safety_service,
 )
 
@@ -116,6 +122,51 @@ def session_history(db: Session, session_id: str) -> list[ConversationMessage]:
     )
 
 
+HISTORY_UNAVAILABLE = "This earlier response is no longer available because its source changed."
+
+
+def patient_session_history(db: Session, session: ConversationSession) -> list[dict]:
+    """Recheck stored answers and omit internal tool records before delivery."""
+    tools = _build_tools(db, session.patient_id, session.id, Role.PATIENT.value)
+    pending_tool = None
+    items = []
+    for message in session_history(db, session.id):
+        if message.role == MessageRole.TOOL.value:
+            pending_tool = message.tool_calls[0] if message.tool_calls else None
+            continue
+
+        content = message.content
+        if message.role == MessageRole.SYSTEM.value:
+            record = message.tool_calls[0] if message.tool_calls else pending_tool
+            pending_tool = None
+            if record:
+                tool_name = record.get("tool")
+                if tool_name not in {"blocked", "request_family_help"}:
+                    if tool_name not in tools:
+                        content = HISTORY_UNAVAILABLE
+                    else:
+                        try:
+                            current_result = tools[tool_name](**(record.get("params") or {}))
+                            current_reply = _compose_reply(tool_name, current_result, Role.PATIENT.value)
+                        except (KeyError, TypeError, ValueError):
+                            content = HISTORY_UNAVAILABLE
+                        else:
+                            if current_reply != message.content:
+                                content = HISTORY_UNAVAILABLE
+            elif message.content != MEDICAL_DECLINE:
+                content = HISTORY_UNAVAILABLE
+
+        items.append({
+            "id": message.id,
+            "role": message.role,
+            "content": content,
+            "tool_calls": None,
+            "safety_flag": message.safety_flag,
+            "created_at": message.created_at.isoformat(),
+        })
+    return items
+
+
 def _add_message(
     db: Session, session_id: str, role: str, content: str | None,
     tool_calls: list | None = None, safety_flag: bool = False,
@@ -171,18 +222,21 @@ def _build_tools(db, patient_id, session_id, viewer_role):
         ]
 
     def _person_by_name(name: str) -> Person | None:
-        person = (
-            db.query(Person)
-            .filter(Person.patient_id == patient_id,
-                    Person.name.ilike(f"%{name}%"))
-            .first()
+        query = db.query(Person).filter(
+            Person.patient_id == patient_id,
+            Person.name.ilike(f"%{name}%"),
         )
+        if viewer_role == Role.PATIENT.value:
+            query = query.filter(Person.identity_status == IdentityStatus.FAMILY_CONFIRMED.value)
+        person = query.first()
         if person is None:
             person = (
                 db.query(Person)
                 .filter(Person.patient_id == patient_id)
                 .all()
             )
+            if viewer_role == Role.PATIENT.value:
+                person = [p for p in person if patient_delivery_service.person_is_visible(p)]
             person = next(
                 (p for p in person if name.lower() in [a.lower() for a in (p.aliases or [])]),
                 None,
@@ -198,7 +252,7 @@ def _build_tools(db, patient_id, session_id, viewer_role):
         )
         relations = []
         if node:
-            relations = graph_service.resolve_relations_for_person(db, patient_id, node[0].id)
+            relations = patient_delivery_service.visible_relations(db, patient_id, node[0].id)
         return {
             "found": True,
             "person": {"name": person.name, "aliases": person.aliases or [],
@@ -217,6 +271,8 @@ def _build_tools(db, patient_id, session_id, viewer_role):
             return {"found": False, "a": a, "b": b}
         shared = []
         for ea in graph_service.list_edges_for_node(db, patient_id, nodes_a[0].id):
+            if ea.status != EdgeStatus.CONFIRMED.value or ea.disputed:
+                continue
             for eb in graph_service.list_edges_for_node(db, patient_id, nodes_b[0].id):
                 if ea.id == eb.id:
                     shared.append({"relation_type": ea.relation_type,
@@ -247,28 +303,28 @@ def _build_tools(db, patient_id, session_id, viewer_role):
         source = (
             db.query(SourceModel)
             .filter(SourceModel.patient_id == patient_id,
-                    SourceModel.file_name.ilike(f"%{source_name}%"))
+                    SourceModel.file_name.ilike(f"%{source_name}%"),
+                    SourceModel.deletion_status == DeletionStatus.ACTIVE.value)
             .first()
         )
-        if source is None:
+        if source is None or not patient_delivery_service.source_is_visible(db, source):
             return {"found": False, "source_name": source_name}
         faces = (
             db.query(FaceMatch)
-            .filter(FaceMatch.source_id == source.id)
+            .filter(
+                FaceMatch.source_id == source.id,
+                FaceMatch.face_match_state == FaceMatchState.FAMILY_CONFIRMED.value,
+            )
             .all()
         )
         people = []
         for face in faces:
             person = db.get(Person, face.person_id) if face.person_id else None
-            people.append({
-                "name": person.name if person else "unidentified",
-                "state": face.face_match_state,
-                "confidence": face.confidence,
-            })
+            if patient_delivery_service.person_is_visible(person):
+                people.append({"name": person.name, "state": face.face_match_state})
         return {
             "found": True,
             "source_name": source.file_name,
-            "scene": (source.pipeline_results or {}).get("vision", {}).get("scene"),
             "people": people,
         }
 
@@ -276,7 +332,9 @@ def _build_tools(db, patient_id, session_id, viewer_role):
         node = graph_service.find_nodes(db, patient_id, "event", name)
         if not node:
             return {"found": False, "name": name}
-        relations = graph_service.resolve_relations_for_person(db, patient_id, node[0].id)
+        relations = patient_delivery_service.visible_relations(db, patient_id, node[0].id)
+        if not relations:
+            return {"found": False, "name": name}
         memories = [r["other_name"] for r in relations
                     if r["other_node_type"] == "memory"]
         return {"found": True, "event": name, "memories": memories,
@@ -286,12 +344,14 @@ def _build_tools(db, patient_id, session_id, viewer_role):
         node = graph_service.find_nodes(db, patient_id, "place", name)
         if not node:
             return {"found": False, "name": name}
-        relations = graph_service.resolve_relations_for_person(db, patient_id, node[0].id)
+        relations = patient_delivery_service.visible_relations(db, patient_id, node[0].id)
         memories = []
         for m in _approved_releasable():
             tags = [str(t).lower() for t in (m.tags or [])]
             if any(name.lower() in t for t in tags):
                 memories.append(_memory_summary(m))
+        if not relations and not memories:
+            return {"found": False, "name": name}
         return {"found": True, "place": name, "memories": memories,
                 "relations": relations}
 
@@ -310,7 +370,13 @@ def _build_tools(db, patient_id, session_id, viewer_role):
                     break
         if memory is None:
             return {"found": False, "memory": memory_title}
-        provenance = evidence_service.get_memory_provenance(db, memory.id)
+        provenance = [
+            p for p in evidence_service.get_memory_provenance(db, memory.id)
+            if p["evidence"].review_status == EvidenceReviewStatus.ACCEPTED.value
+            and (not p["evidence"].source_id or
+                 (p["source"] and p["source"].deletion_status == DeletionStatus.ACTIVE.value
+                  and p["source"].patient_id == patient_id))
+        ]
         return {
             "found": True,
             "memory": memory.title,
@@ -461,7 +527,8 @@ def _compose_reply(tool_name: str, result: dict, viewer_role: str) -> str:
         ) + "."
 
     if tool_name in ("get_memory", "search_memories"):
-        results = [result["memory"]] if tool_name == "get_memory" else result.get("results", [])
+        results = ([result["memory"]] if result.get("found") else []) \
+            if tool_name == "get_memory" else result.get("results", [])
         if not results:
             return UNCERTAINTY_FALLBACK
         if len(results) == 1:
@@ -543,6 +610,8 @@ def respond(
     session = db.get(ConversationSession, session_id)
     if session is None:
         raise ValueError(f"Session {session_id} not found")
+    if session.status != ConversationSessionStatus.ACTIVE.value:
+        raise ValueError("Conversation session is not active")
 
     _add_message(db, session_id, MessageRole.PATIENT.value, patient_text)
 
@@ -570,5 +639,5 @@ def respond(
     _add_message(db, session_id, MessageRole.TOOL.value, str(tool_name),
                  tool_calls=[tool_record])
     reply = _compose_reply(tool_name, result, viewer_role)
-    _add_message(db, session_id, MessageRole.SYSTEM.value, reply)
+    _add_message(db, session_id, MessageRole.SYSTEM.value, reply, tool_calls=[tool_record])
     return {"reply": reply, "tool_calls": [tool_record], "safety_flag": False}

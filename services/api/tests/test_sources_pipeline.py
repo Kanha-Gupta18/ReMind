@@ -5,7 +5,7 @@ from tests.conftest import auth
 
 def test_upload_process_reconstruct(client, tokens):
     body = {"file_name": "holiday_1985.jpg", "file_type": "photo",
-            "context_tags": ["Goa", "the 1980s"], "storage_path": "/tmp/holiday_1985.jpg"}
+            "context_tags": ["Goa", "the 1980s"]}
     r = client.post("/sources", json=body, headers=auth(tokens["contributor"]))
     assert r.status_code == 201
     src_id = r.json()["id"]

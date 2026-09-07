@@ -68,6 +68,8 @@ def test_person_crud_and_face_match(client, tokens, users):
                         headers=auth(tokens["reviewer"]))
         assert r.status_code == 200
         r = client.get("/people/face-matches", headers=auth(tokens["patient"]))
+        assert r.status_code == 200 and r.json()["count"] == 0
+        r = client.get("/people/face-matches", headers=auth(tokens["reviewer"]))
         assert r.status_code == 200 and r.json()["count"] >= 1
     finally:
         db = SessionLocal()

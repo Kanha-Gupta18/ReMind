@@ -1,7 +1,8 @@
 """People + face-match routes (spec §6.1.1, §18.2).
 
 RBAC:
-  - everyone in scope reads people and their graph relations
+  - everyone in scope reads people and their graph relations; patients receive
+    only family-confirmed identities and confirmed, undisputed relations
   - contributor/reviewer  create people, propose aliases/relations
   - reviewer/guardian/admin  update identity and confirm face matches
 """
@@ -14,10 +15,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_patient_scope, require_roles
 from app.core.database import get_db
 from app.models.constants import FaceMatchState, IdentityStatus, Role
+from app.models.memory import Source
 from app.models.people import FaceMatch, Person
 from app.models.user import User
 from app.schemas.people import FaceMatchConfirm, PersonCreate, PersonUpdate
-from app.services import audit_service, graph_service
+from app.services import audit_service, graph_service, patient_delivery_service
 
 router = APIRouter(prefix="/people", tags=["people"])
 
@@ -48,12 +50,16 @@ def _resolve_scope(scope: str | None, patient_id: str | None = None) -> str:
 @router.get("")
 def list_people(
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(get_current_user)],
     scope: Annotated[str | None, Depends(get_patient_scope)],
     patient_id: str | None = None,
 ):
     pid = _resolve_scope(scope, patient_id)
     people = db.query(Person).filter(Person.patient_id == pid).order_by(Person.name).all()
-    return {"items": [_json(p) for p in people], "count": len(people)}
+    patient_view = current.role == Role.PATIENT.value
+    if patient_view:
+        people = [p for p in people if patient_delivery_service.person_is_visible(p)]
+    return {"items": [_json(p, patient=patient_view) for p in people], "count": len(people)}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -114,6 +120,7 @@ def update_person(
 def person_relations(
     person_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(get_current_user)],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     person = db.get(Person, person_id)
@@ -121,26 +128,44 @@ def person_relations(
         raise HTTPException(status_code=404, detail="Person not found")
     if scope is not None and person.patient_id != scope:
         raise HTTPException(status_code=403, detail="Not your patient")
+    if current.role == Role.PATIENT.value and not patient_delivery_service.person_is_visible(person):
+        raise HTTPException(status_code=404, detail="Person not found")
     nodes = graph_service.find_nodes(db, person.patient_id, "person", person.name)
     if not nodes:
         return {"items": []}
-    return {"items": graph_service.resolve_relations_for_person(db, person.patient_id, nodes[0].id)}
+    if current.role == Role.PATIENT.value:
+        relations = patient_delivery_service.visible_relations(db, person.patient_id, nodes[0].id)
+    else:
+        relations = graph_service.resolve_relations_for_person(db, person.patient_id, nodes[0].id)
+    return {"items": relations}
 
 
 @router.get("/face-matches")
 def list_face_matches(
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(get_current_user)],
     scope: Annotated[str | None, Depends(get_patient_scope)],
     patient_id: str | None = None,
 ):
     pid = _resolve_scope(scope, patient_id)
     matches = db.query(FaceMatch).filter(FaceMatch.patient_id == pid)\
         .order_by(FaceMatch.created_at.desc()).all()
+    patient_view = current.role == Role.PATIENT.value
+    if patient_view:
+        matches = [
+            match for match in matches
+            if match.face_match_state == FaceMatchState.FAMILY_CONFIRMED.value
+            and patient_delivery_service.person_is_visible(db.get(Person, match.person_id))
+            and patient_delivery_service.source_is_visible(db, db.get(Source, match.source_id))
+        ]
     return {"items": [
         {"id": f.id, "source_id": f.source_id, "person_id": f.person_id,
-         "face_match_state": f.face_match_state, "confidence": f.confidence,
-         "model_version": f.model_version, "reviewed_by": f.reviewed_by,
-         "reviewed_at": f.reviewed_at.isoformat() if f.reviewed_at else None}
+         "face_match_state": f.face_match_state,
+         **({} if patient_view else {
+             "confidence": f.confidence, "model_version": f.model_version,
+             "reviewed_by": f.reviewed_by,
+             "reviewed_at": f.reviewed_at.isoformat() if f.reviewed_at else None,
+         })}
         for f in matches
     ], "count": len(matches)}
 
@@ -174,10 +199,13 @@ def confirm_face_match(
             "person_identity_status": person.identity_status}
 
 
-def _json(p: Person) -> dict:
-    return {
+def _json(p: Person, patient: bool = False) -> dict:
+    data = {
         "id": p.id, "patient_id": p.patient_id, "name": p.name,
         "aliases": p.aliases or [], "relationship_to_patient": p.relationship_to_patient,
-        "identity_status": p.identity_status, "notes": p.notes,
+        "identity_status": p.identity_status,
         "created_at": p.created_at.isoformat(),
     }
+    if not patient:
+        data["notes"] = p.notes
+    return data

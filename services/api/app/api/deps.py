@@ -94,6 +94,8 @@ def get_patient_scope(user: Annotated[User, Depends(get_current_user)]) -> str |
         return None
     if user.role == Role.PATIENT.value:
         return user.id
+    if not user.patient_id:
+        raise HTTPException(status_code=403, detail="No patient relationship is configured")
     return user.patient_id
 
 

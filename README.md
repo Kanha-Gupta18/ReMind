@@ -128,9 +128,14 @@ The current backend suite covers authentication, role access, consent records, s
 
 ## Current limitations
 
-Before controlled testing, the project needs stronger enforcement around patient-visible review state, confirmed identities, consent directives, source-file access, revision semantics, and deletion propagation. It also needs encrypted object storage, background jobs, real multimodal processing, production authentication, observability, and patient-grade accessibility.
+Before controlled testing, the project still needs enforceable consent directives,
+correct revision promotion, deletion propagation, and authorized export. It also
+needs encrypted object storage, background jobs, real multimodal processing,
+production authentication, observability, and patient-grade accessibility.
 
-See [Product](docs/PRODUCT.md), [Architecture](docs/ARCHITECTURE.md), [Roadmap](docs/ROADMAP.md), and [Security](SECURITY.md) for more detail.
+See [Build plan](docs/BUILD_PLAN.md), [Build status](docs/BUILD_STATUS.md),
+[Product](docs/PRODUCT.md), [Architecture](docs/ARCHITECTURE.md),
+[Roadmap](docs/ROADMAP.md), and [Security](SECURITY.md) for more detail.
 
 ## Contributing
 
