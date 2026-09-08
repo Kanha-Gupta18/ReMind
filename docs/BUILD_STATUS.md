@@ -7,7 +7,7 @@ implementation status separately from planned functionality.
 | --- | --- | --- |
 | 1 | Development baseline and test reliability | Complete: fresh installs, web build, migrations, schema drift check, 98 API tests |
 | 2 | Immediate access and patient-delivery flaws | Complete: patient delivery is fail-closed across content routes; 121 API tests |
-| 3 | Accounts, patient profiles, and consent | Planned |
+| 3 | Accounts, patient profiles, and consent | Complete: revocable relationships, server-backed sessions, onboarding, profiles, and enforced versioned consent; 134 API tests |
 | 4 | Canonical memory data and revisions | Planned |
 | 5 | Corrections, deletion, and export | Planned |
 | 6 | Trusted uploads and processing jobs | Planned |
@@ -71,5 +71,35 @@ Branch: `codex/02-patient-access`.
   checking and the Vite production build passed. `git diff --check` passed with
   Windows line-ending notices only.
 
-Consent policy enforcement remains Section 3. Revision promotion, source deletion
-propagation, and real extraction remain assigned to Sections 4, 5, and 12.
+Revision promotion, source deletion propagation, and real extraction remain
+assigned to Sections 4, 5, and 12.
+
+## Section 3 verification
+
+Branch: `codex/03-accounts-consent`.
+
+- Login sessions are stored server-side, expire after inactivity or their absolute
+  lifetime, rotate refresh tokens, reject refresh-token replay, and are revoked on
+  logout, password changes, role changes, or account deactivation.
+- Patient access is represented by revocable relationship records. An account can
+  support more than one patient, and removing a relationship takes effect on the
+  next request. Administrators can manage accounts but cannot read patient content.
+- Patients can complete first-time onboarding, maintain their care and
+  accessibility profile, and grant or revoke family relationships. All profile and
+  relationship routes check both the relationship and the current consent policy.
+- Consent directives are immutable versions with typed source permissions, role
+  permissions, restrictions, guardian authority, third-party visibility, training
+  preference, and post-death instructions. Guardians may only exercise explicitly
+  delegated authority and may only make a directive more restrictive.
+- Consent is enforced across memories, sources, people, graph retrieval,
+  conversations, timeline delivery, safety information, and notifications.
+  Previously issued notifications also disappear when their underlying permission
+  is withdrawn.
+- The web app now refreshes sessions safely, supports explicit patient selection,
+  and provides onboarding, profile, relationship, and structured consent screens.
+- All 134 API tests passed. TypeScript checking, the Vite production build,
+  `git diff --check`, and the UI mechanical-quality detector passed.
+
+Canonical revision selection remains Section 4. Correction and deletion
+propagation, export, production identity hardening such as MFA, and the full visual
+redesign remain assigned to Sections 5, 8, and 14 as defined in the build plan.

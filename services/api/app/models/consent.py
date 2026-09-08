@@ -1,6 +1,6 @@
 """Versioned consent directives (spec §17)."""
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
 
 from app.core.database import Base
 from app.models.base import new_id, utcnow
@@ -19,6 +19,9 @@ class ConsentDirective(Base):
     """
 
     __tablename__ = "consent_directives"
+    __table_args__ = (
+        UniqueConstraint("patient_id", "version", name="uq_consent_directive_patient_version"),
+    )
 
     id = Column(String, primary_key=True, default=new_id)
     patient_id = Column(String, ForeignKey("users.id"), nullable=False)
@@ -32,9 +35,9 @@ class ConsentDirective(Base):
     guardian_rules = Column(JSON, default=dict)
 
     signer = Column(String, nullable=True)
+    signed_by_user_id = Column(String, ForeignKey("users.id"), nullable=True)
     witness = Column(String, nullable=True)
     training_opt_in = Column(Boolean, default=False)
-    post_death_policy = Column(JSON, nullable=True)
+    post_death_policy = Column(JSON, default=lambda: {"mode": "keep_private"}, nullable=False)
 
     created_at = Column(DateTime(timezone=True), default=utcnow)
-    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

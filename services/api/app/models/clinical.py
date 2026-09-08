@@ -32,6 +32,8 @@ class Notification(Base):
 
     id = Column(String, primary_key=True, default=new_id)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    patient_id = Column(String, ForeignKey("users.id"), nullable=True)
+    required_action = Column(String, nullable=True)
     type = Column(String, nullable=False)  # review_needed|upload_complete|distress|approval
     message = Column(String, nullable=False)
     read = Column(Boolean, default=False)

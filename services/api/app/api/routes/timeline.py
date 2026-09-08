@@ -10,16 +10,16 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_patient_scope, require_roles
+from app.api.deps import get_current_user, get_patient_scope, require_consent_action, require_roles
 from app.core.database import get_db
-from app.models.constants import Role
+from app.models.constants import ConsentAction, Role
 from app.models.user import User
 from app.services import timeline_service
 
 router = APIRouter(prefix="/timeline", tags=["timeline"])
 
 _ANALYTICS_ROLES = [Role.CAREGIVER.value, Role.CLINICIAN.value,
-                    Role.GUARDIAN.value, Role.ADMINISTRATOR.value]
+                    Role.GUARDIAN.value]
 
 
 def _scope_or_403(scope: str | None) -> str:
@@ -46,6 +46,7 @@ def get_timeline(
     limit: int | None = None,
 ):
     pid = _scope_or_403(scope)
+    require_consent_action(db, current, pid, ConsentAction.MEMORIES_VIEW)
     memories = timeline_service.get_timeline(
         db, pid, viewer_role=current.role, limit=limit
     )
@@ -59,6 +60,7 @@ def decades(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     pid = _scope_or_403(scope)
+    require_consent_action(db, current, pid, ConsentAction.MEMORIES_VIEW)
     groups = timeline_service.group_by_decade(db, pid)
     return {"items": groups}
 
@@ -70,6 +72,7 @@ def places(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     pid = _scope_or_403(scope)
+    require_consent_action(db, current, pid, ConsentAction.MEMORIES_VIEW)
     groups = timeline_service.group_by_place(db, pid)
     return {"items": groups}
 
@@ -81,4 +84,5 @@ def engagement(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     pid = _scope_or_403(scope)
+    require_consent_action(db, current, pid, ConsentAction.ENGAGEMENT_VIEW)
     return timeline_service.engagement_stats(db, pid)

@@ -12,9 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.ai import conversation as agent
-from app.api.deps import get_current_user, get_patient_scope, require_roles
+from app.api.deps import get_current_user, get_patient_scope, require_consent_action, require_roles
 from app.core.database import get_db
-from app.models.constants import ConversationSessionStatus, Role
+from app.models.constants import ConsentAction, ConversationSessionStatus, Role
 from app.models.conversation import ConversationSession
 from app.models.user import User
 from app.schemas.conversation import MessageSend, SessionStart
@@ -23,7 +23,7 @@ from app.services import audit_service, safety_service
 router = APIRouter(prefix="/conversations", tags=["conversation"])
 
 _READ_ROLES = [Role.PATIENT.value, Role.FAMILY_REVIEWER.value, Role.CAREGIVER.value,
-               Role.GUARDIAN.value, Role.CLINICIAN.value, Role.ADMINISTRATOR.value]
+               Role.GUARDIAN.value, Role.CLINICIAN.value]
 
 
 def _get_scoped(db: Session, session_id: str, scope: str | None) -> ConversationSession:
@@ -54,6 +54,7 @@ def list_sessions(
     current: Annotated[User, Depends(require_roles(*_READ_ROLES))],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
+    require_consent_action(db, current, scope, ConsentAction.CONVERSATIONS_VIEW)
     query = db.query(ConversationSession).order_by(ConversationSession.created_at.desc())
     if scope:
         query = query.filter(ConversationSession.patient_id == scope)
@@ -74,6 +75,7 @@ def get_messages(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     session = _get_scoped(db, session_id, scope)
+    require_consent_action(db, current, session.patient_id, ConsentAction.CONVERSATIONS_VIEW)
     if current.role == Role.PATIENT.value:
         messages = agent.patient_session_history(db, session)
         return {"items": messages, "count": len(messages)}
@@ -122,6 +124,7 @@ def stop_session(
         return {"ok": True, "status": session.status}
 
     if current.role == Role.CAREGIVER.value:
+        require_consent_action(db, current, session.patient_id, ConsentAction.SAFETY_MANAGE)
         event = safety_service.stop_session_for_safety(
             db, session, severity="medium",
             context={"by": current.id}, action="session_stopped_by_caregiver",

@@ -12,7 +12,7 @@ class UserOut(BaseModel):
     email: str
     full_name: str
     role: str
-    patient_id: str | None = None
+    patient_ids: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -44,7 +44,7 @@ class UserAdminOut(BaseModel):
     email: str
     full_name: str
     role: str
-    patient_id: str | None = None
+    patient_ids: list[str] = Field(default_factory=list)
     phone: str | None = None
     mfa_enabled: bool
     is_active: bool

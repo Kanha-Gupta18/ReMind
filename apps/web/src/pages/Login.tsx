@@ -17,8 +17,8 @@ export function Login() {
     setError(null)
     setBusy(true)
     try {
-      await login(email, password)
-      navigate('/', { replace: true })
+      const user = await login(email, password)
+      navigate(user.role === 'administrator' ? '/admin' : '/', { replace: true })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not reach the ReMind server')
     } finally {

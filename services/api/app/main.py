@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api.routes import admin, auth, consent, conversation, graph, memories, notifications, people, safety, sources, timeline
+from app.api.routes import admin, auth, consent, conversation, graph, memories, notifications, patients, people, safety, sources, timeline
 from app.core.config import settings
 from app.core.database import engine
 
@@ -26,6 +26,7 @@ app.include_router(notifications.router)
 app.include_router(safety.router)
 app.include_router(people.router)
 app.include_router(consent.router)
+app.include_router(patients.router)
 app.include_router(admin.router)
 
 

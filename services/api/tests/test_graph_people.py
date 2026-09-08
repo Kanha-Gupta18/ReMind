@@ -84,11 +84,7 @@ def test_people_admin_patient_scope(client, tokens, users):
     r = client.get("/people", headers=auth(tokens["admin"]))
     assert r.status_code == 403
     r = client.get(f"/people?patient_id={pid}", headers=auth(tokens["admin"]))
-    assert r.status_code == 200
-    r = client.get("/people/face-matches", headers=auth(tokens["admin"]))
     assert r.status_code == 403
-    r = client.get(f"/people/face-matches?patient_id={pid}", headers=auth(tokens["admin"]))
-    assert r.status_code == 200
     r = client.get("/people", headers=auth(tokens["contributor"]))
     assert r.status_code == 200
 
@@ -101,9 +97,4 @@ def test_graph_admin_patient_scope(client, tokens, users):
     r = client.get("/graph", headers=auth(tokens["patient"]))
     assert r.status_code == 403
     r = client.get(f"/graph?patient_id={pid}", headers=auth(tokens["admin"]))
-    assert r.status_code == 200
-    assert any(n["name"] == "Sunita" for n in r.json()["nodes"])
-    r = client.get(f"/graph/nodes?patient_id={pid}&node_type=person", headers=auth(tokens["admin"]))
-    assert r.status_code == 200 and r.json()["count"] >= 1
-    r = client.get(f"/graph/nodes?patient_id={pid}", headers=auth(tokens["admin"]))
-    assert r.status_code == 200
+    assert r.status_code == 403

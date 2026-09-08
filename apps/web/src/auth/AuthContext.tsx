@@ -1,15 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { api, setAccessToken } from '../api/client'
+import { ACCESS_KEY, api, REFRESH_KEY, setPatientScope, setSessionTokens } from '../api/client'
 import type { User } from '../api/types'
 
-const ACCESS_KEY = 'remind.access_token'
-const REFRESH_KEY = 'remind.refresh_token'
+const PATIENT_KEY = 'remind.patient_id'
 
 interface AuthContextValue {
   user: User | null
   loading: boolean
-  login: (email: string, password: string) => Promise<void>
+  selectedPatientId: string | null
+  selectPatient: (patientId: string) => void
+  login: (email: string, password: string) => Promise<User>
   logout: () => Promise<void>
 }
 
@@ -18,32 +19,58 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
+
+  const clearSession = useCallback(() => {
+    setSessionTokens(null, null)
+    setPatientScope(null)
+    localStorage.removeItem(PATIENT_KEY)
+    setSelectedPatientId(null)
+    setUser(null)
+  }, [])
+
+  const applyPatientSelection = useCallback((nextUser: User) => {
+    const stored = localStorage.getItem(PATIENT_KEY)
+    const selected = nextUser.role === 'patient'
+      ? nextUser.id
+      : stored && nextUser.patient_ids.includes(stored)
+        ? stored
+        : nextUser.patient_ids.length === 1
+          ? nextUser.patient_ids[0]
+          : null
+    setSelectedPatientId(selected)
+    setPatientScope(selected)
+    if (selected) localStorage.setItem(PATIENT_KEY, selected)
+  }, [])
 
   useEffect(() => {
     const token = localStorage.getItem(ACCESS_KEY)
-    if (!token) {
+    const refresh = localStorage.getItem(REFRESH_KEY)
+    if (!token || !refresh) {
       setLoading(false)
       return
     }
-    setAccessToken(token)
+    setSessionTokens(token, refresh)
     api
       .me()
-      .then(setUser)
-      .catch(() => {
-        localStorage.removeItem(ACCESS_KEY)
-        localStorage.removeItem(REFRESH_KEY)
-        setAccessToken(null)
+      .then((nextUser) => {
+        setUser(nextUser)
+        applyPatientSelection(nextUser)
       })
+      .catch(clearSession)
       .finally(() => setLoading(false))
-  }, [])
+
+    window.addEventListener('remind:session-expired', clearSession)
+    return () => window.removeEventListener('remind:session-expired', clearSession)
+  }, [applyPatientSelection, clearSession])
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await api.login(email, password)
-    localStorage.setItem(ACCESS_KEY, res.access_token)
-    localStorage.setItem(REFRESH_KEY, res.refresh_token)
-    setAccessToken(res.access_token)
+    setSessionTokens(res.access_token, res.refresh_token)
     setUser(res.user)
-  }, [])
+    applyPatientSelection(res.user)
+    return res.user
+  }, [applyPatientSelection])
 
   const logout = useCallback(async () => {
     try {
@@ -51,15 +78,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       /* still clear local state even if the network call fails */
     }
-    localStorage.removeItem(ACCESS_KEY)
-    localStorage.removeItem(REFRESH_KEY)
-    setAccessToken(null)
-    setUser(null)
-  }, [])
+    clearSession()
+  }, [clearSession])
+
+  const selectPatient = useCallback((patientId: string) => {
+    if (!user?.patient_ids.includes(patientId)) return
+    localStorage.setItem(PATIENT_KEY, patientId)
+    setSelectedPatientId(patientId)
+    setPatientScope(patientId)
+  }, [user])
 
   const value = useMemo(
-    () => ({ user, loading, login, logout }),
-    [user, loading, login, logout],
+    () => ({ user, loading, selectedPatientId, selectPatient, login, logout }),
+    [user, loading, selectedPatientId, selectPatient, login, logout],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

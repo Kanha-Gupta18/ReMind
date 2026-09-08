@@ -3,18 +3,27 @@
 from sqlalchemy.orm import Session
 
 from app.models.clinical import Notification
-from app.models.constants import NotificationType, Role
+from app.models.constants import AccessGrantStatus, ConsentAction, NotificationType, Role
 from app.models.memory import MemoryCard
-from app.models.user import User
+from app.models.user import PatientAccessGrant, User
+from app.services import consent_service
 
 
 def notify(
     db: Session,
     user_id: str,
+    patient_id: str,
+    required_action: str,
     type: str,
     message: str,
 ) -> Notification:
-    notification = Notification(user_id=user_id, type=type, message=message)
+    notification = Notification(
+        user_id=user_id,
+        patient_id=patient_id,
+        required_action=required_action,
+        type=type,
+        message=message,
+    )
     db.add(notification)
     db.flush()
     return notification
@@ -24,6 +33,7 @@ def notify_role(
     db: Session,
     patient_id: str,
     role: str,
+    required_action: str | ConsentAction,
     type: str,
     message: str,
 ) -> list[Notification]:
@@ -33,21 +43,46 @@ def notify_role(
     """
     users = (
         db.query(User)
-        .filter(User.patient_id == patient_id, User.role == role, User.is_active.is_(True))
+        .join(PatientAccessGrant, PatientAccessGrant.user_id == User.id)
+        .filter(
+            PatientAccessGrant.patient_id == patient_id,
+            PatientAccessGrant.status == AccessGrantStatus.ACTIVE.value,
+            User.role == role,
+            User.is_active.is_(True),
+        )
         .all()
     )
-    return [notify(db, u.id, type, message) for u in users]
+    action_value = required_action.value if isinstance(required_action, ConsentAction) else required_action
+    return [
+        notify(db, u.id, patient_id, action_value, type, message)
+        for u in users
+        if consent_service.action_is_allowed(db, u, patient_id, action_value)
+    ]
+
+
+def notification_is_visible(db: Session, notification: Notification, user: User) -> bool:
+    return bool(
+        notification.user_id == user.id
+        and notification.patient_id
+        and notification.required_action
+        and consent_service.action_is_allowed(
+            db, user, notification.patient_id, notification.required_action
+        )
+    )
 
 
 def list_for_user(
     db: Session,
-    user_id: str,
+    user: User,
     unread_only: bool = False,
 ) -> list[Notification]:
-    query = db.query(Notification).filter(Notification.user_id == user_id)
+    query = db.query(Notification).filter(Notification.user_id == user.id)
     if unread_only:
         query = query.filter(Notification.read.is_(False))
-    return query.order_by(Notification.created_at.desc()).all()
+    return [
+        item for item in query.order_by(Notification.created_at.desc()).all()
+        if notification_is_visible(db, item, user)
+    ]
 
 
 def mark_read(db: Session, notification_id: str) -> Notification:
@@ -59,13 +94,11 @@ def mark_read(db: Session, notification_id: str) -> Notification:
     return notification
 
 
-def mark_all_read(db: Session, user_id: str) -> int:
-    rows = (
-        db.query(Notification)
-        .filter(Notification.user_id == user_id, Notification.read.is_(False))
-        .update({"read": True}, synchronize_session=False)
-    )
-    return rows
+def mark_all_read(db: Session, user: User) -> int:
+    items = list_for_user(db, user, unread_only=True)
+    for item in items:
+        item.read = True
+    return len(items)
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +111,7 @@ def notify_review_needed(db: Session, memory: MemoryCard) -> list[Notification]:
         db,
         memory.patient_id,
         Role.FAMILY_REVIEWER.value,
+        ConsentAction.MEMORIES_REVIEW,
         NotificationType.REVIEW_NEEDED.value,
         f"A new memory is ready for review: {memory.title}",
     )
@@ -88,6 +122,7 @@ def notify_upload_complete(db: Session, patient_id: str) -> list[Notification]:
         db,
         patient_id,
         Role.FAMILY_CONTRIBUTOR.value,
+        ConsentAction.SOURCES_VIEW,
         NotificationType.UPLOAD_COMPLETE.value,
         "A source you uploaded has finished processing.",
     )
@@ -100,6 +135,7 @@ def notify_dispute_flagged(
         db,
         patient_id,
         Role.FAMILY_REVIEWER.value,
+        ConsentAction.MEMORIES_REVIEW,
         NotificationType.DISPUTE_FLAGGED.value,
         f"Memory flagged for dispute: {memory_title}",
     )

@@ -3,7 +3,7 @@
 ReMind is an evidence-grounded memory-support platform for people living with dementia, Alzheimer's disease, acquired brain injury, or other forms of memory impairment. It helps families preserve autobiographical context and present verified memories through a calm timeline and conversational interface.
 
 > [!IMPORTANT]
-> ReMind is an early-stage prototype. It is not a diagnostic product, a substitute for medical care, or ready for use with real patient data. Safety, consent enforcement, deletion propagation, and production security work remain in progress.
+> ReMind is an early-stage prototype. It is not a diagnostic product, a substitute for medical care, or ready for use with real patient data. Deletion propagation, production security, and clinical validation remain in progress.
 
 ## Product principles
 
@@ -20,13 +20,16 @@ The core invariant is that no patient-facing autobiographical claim should exist
 
 The current prototype includes:
 
-- Role-aware authentication for patients, family contributors/reviewers, caregivers, guardians, clinicians, and administrators.
+- Server-backed login sessions and revocable patient relationships for patients,
+  family contributors/reviewers, caregivers, guardians, and clinicians.
 - Source upload, metadata capture, checksums, local development storage, and simulated processing pipelines.
 - Memory drafts, review states, revisions, evidence, confidence scoring, and sensitivity flags.
 - Patient timeline views grouped chronologically, by decade, and by place.
 - People, face-match review, and an evidence-bearing knowledge graph.
 - Grounded conversation over approved memories with basic medical and sensitive-topic guardrails.
-- Consent directives, third-party consent records, safety events, notifications, engagement summaries, and audit records.
+- Versioned consent policies enforced across patient-data routes, delegated
+  guardian authority, third-party consent records, safety events, notifications,
+  engagement summaries, and audit records.
 - A role-aware React web application for the implemented workflows.
 
 AI extraction is currently simulated. Real OCR, speech, vision, embedding, and model-provider integrations have not been connected.
@@ -38,7 +41,7 @@ AI extraction is currently simulated. Real OCR, speech, vision, embedding, and m
 | Web | React 19, TypeScript, React Router, Vite |
 | API | Python, FastAPI, Pydantic |
 | Data | PostgreSQL, SQLAlchemy, Alembic |
-| Auth | JWT access/refresh tokens, bcrypt |
+| Auth | Server-backed JWT access/refresh sessions, refresh rotation, bcrypt |
 | Tests | Pytest, FastAPI TestClient |
 
 ## Repository layout
@@ -124,14 +127,17 @@ cd apps/web
 npm run build
 ```
 
-The current backend suite covers authentication, role access, consent records, source processing, memory review, timeline delivery, graph operations, conversation safety, notifications, and administration.
+The current backend suite covers authentication sessions, relationship and consent
+enforcement, patient profiles and onboarding, source processing, memory review,
+timeline delivery, graph operations, conversation safety, notifications, and
+administration.
 
 ## Current limitations
 
-Before controlled testing, the project still needs enforceable consent directives,
-correct revision promotion, deletion propagation, and authorized export. It also
-needs encrypted object storage, background jobs, real multimodal processing,
-production authentication, observability, and patient-grade accessibility.
+Before controlled testing, the project still needs correct revision promotion,
+deletion propagation, and authorized export. It also needs encrypted object
+storage, background jobs, real multimodal processing, production identity controls
+such as MFA, observability, and patient-grade accessibility.
 
 See [Build plan](docs/BUILD_PLAN.md), [Build status](docs/BUILD_STATUS.md),
 [Product](docs/PRODUCT.md), [Architecture](docs/ARCHITECTURE.md),

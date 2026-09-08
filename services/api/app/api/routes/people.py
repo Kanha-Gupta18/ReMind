@@ -12,9 +12,14 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_patient_scope, require_roles
+from app.api.deps import (
+    get_current_user,
+    get_patient_scope,
+    require_consent_action,
+    require_roles,
+)
 from app.core.database import get_db
-from app.models.constants import FaceMatchState, IdentityStatus, Role
+from app.models.constants import ConsentAction, FaceMatchState, IdentityStatus, Role
 from app.models.memory import Source
 from app.models.people import FaceMatch, Person
 from app.models.user import User
@@ -23,7 +28,7 @@ from app.services import audit_service, graph_service, patient_delivery_service
 
 router = APIRouter(prefix="/people", tags=["people"])
 
-_EDIT_ROLES = [Role.FAMILY_REVIEWER.value, Role.GUARDIAN.value, Role.ADMINISTRATOR.value]
+_EDIT_ROLES = [Role.FAMILY_REVIEWER.value, Role.GUARDIAN.value]
 _CREATE_ROLES = _EDIT_ROLES + [Role.FAMILY_CONTRIBUTOR.value]
 
 
@@ -55,10 +60,11 @@ def list_people(
     patient_id: str | None = None,
 ):
     pid = _resolve_scope(scope, patient_id)
+    require_consent_action(db, current, pid, ConsentAction.PEOPLE_VIEW)
     people = db.query(Person).filter(Person.patient_id == pid).order_by(Person.name).all()
     patient_view = current.role == Role.PATIENT.value
     if patient_view:
-        people = [p for p in people if patient_delivery_service.person_is_visible(p)]
+        people = [p for p in people if patient_delivery_service.person_is_visible(db, p)]
     return {"items": [_json(p, patient=patient_view) for p in people], "count": len(people)}
 
 
@@ -71,6 +77,7 @@ def create_person(
     body: PersonCreate = Body(...),
 ):
     pid = _scope_patient(scope, current, patient_id)
+    require_consent_action(db, current, pid, ConsentAction.PEOPLE_CREATE)
     person = Person(
         patient_id=pid, name=body.name, aliases=body.aliases,
         relationship_to_patient=body.relationship_to_patient,
@@ -97,6 +104,7 @@ def update_person(
         raise HTTPException(status_code=404, detail="Person not found")
     if scope is not None and person.patient_id != scope:
         raise HTTPException(status_code=403, detail="Not your patient")
+    require_consent_action(db, current, person.patient_id, ConsentAction.PEOPLE_VERIFY)
     if body.aliases is not None:
         person.aliases = body.aliases
     if body.relationship_to_patient is not None:
@@ -128,7 +136,8 @@ def person_relations(
         raise HTTPException(status_code=404, detail="Person not found")
     if scope is not None and person.patient_id != scope:
         raise HTTPException(status_code=403, detail="Not your patient")
-    if current.role == Role.PATIENT.value and not patient_delivery_service.person_is_visible(person):
+    require_consent_action(db, current, person.patient_id, ConsentAction.PEOPLE_VIEW)
+    if current.role == Role.PATIENT.value and not patient_delivery_service.person_is_visible(db, person):
         raise HTTPException(status_code=404, detail="Person not found")
     nodes = graph_service.find_nodes(db, person.patient_id, "person", person.name)
     if not nodes:
@@ -148,6 +157,7 @@ def list_face_matches(
     patient_id: str | None = None,
 ):
     pid = _resolve_scope(scope, patient_id)
+    require_consent_action(db, current, pid, ConsentAction.PEOPLE_VIEW)
     matches = db.query(FaceMatch).filter(FaceMatch.patient_id == pid)\
         .order_by(FaceMatch.created_at.desc()).all()
     patient_view = current.role == Role.PATIENT.value
@@ -155,7 +165,7 @@ def list_face_matches(
         matches = [
             match for match in matches
             if match.face_match_state == FaceMatchState.FAMILY_CONFIRMED.value
-            and patient_delivery_service.person_is_visible(db.get(Person, match.person_id))
+            and patient_delivery_service.person_is_visible(db, db.get(Person, match.person_id))
             and patient_delivery_service.source_is_visible(db, db.get(Source, match.source_id))
         ]
     return {"items": [
@@ -183,6 +193,7 @@ def confirm_face_match(
         raise HTTPException(status_code=404, detail="Face match not found")
     if scope is not None and match.patient_id != scope:
         raise HTTPException(status_code=403, detail="Not your patient")
+    require_consent_action(db, current, match.patient_id, ConsentAction.PEOPLE_VERIFY)
     person = db.get(Person, body.person_id)
     if person is None or person.patient_id != match.patient_id:
         raise HTTPException(status_code=400, detail="Person must belong to the same patient")

@@ -3,8 +3,9 @@
 RBAC:
   - family_contributor/reviewer/guardian  upload + trigger processing
   - caregiver                            read
-  - reviewer/guardian/admin              reconstruct drafts from sources
-  - administrator                        everything (scope=None)
+  - reviewer/guardian                    reconstruct drafts from sources
+
+Administrators manage accounts and operations, but cannot read patient content.
 """
 
 import hashlib
@@ -19,23 +20,28 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.ai import reconstruction
-from app.api.deps import get_current_user, get_patient_scope, require_roles
+from app.api.deps import (
+    get_current_user,
+    get_patient_scope,
+    require_consent_action,
+    require_roles,
+)
 from app.core.config import settings
 from app.core.database import get_db
-from app.models.constants import DeletionStatus, Role
+from app.models.constants import ConsentAction, DeletionStatus, Role
 from app.models.memory import Source
 from app.models.user import User
 from app.schemas.source import SourceCreate
-from app.services import audit_service, notification_service, patient_delivery_service
+from app.services import audit_service, consent_service, notification_service, patient_delivery_service
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
 _UPLOAD_ROLES = [Role.FAMILY_CONTRIBUTOR.value, Role.FAMILY_REVIEWER.value,
-                 Role.GUARDIAN.value, Role.ADMINISTRATOR.value]
+                 Role.GUARDIAN.value]
 _PROCESS_ROLES = [Role.FAMILY_CONTRIBUTOR.value, Role.FAMILY_REVIEWER.value,
-                  Role.GUARDIAN.value, Role.ADMINISTRATOR.value]
+                  Role.GUARDIAN.value]
 _RECONSTRUCT_ROLES = [Role.FAMILY_REVIEWER.value, Role.GUARDIAN.value,
-                      Role.ADMINISTRATOR.value]
+                      ]
 
 _EXTENSION_TYPES = {
     ".jpg": "photo", ".jpeg": "photo", ".png": "photo", ".heic": "photo",
@@ -78,6 +84,7 @@ async def upload_source_file(
     under {storage_dir}/{patient_id}/{source_id}/, and infers file_type from
     the extension (spec §5 provenance: checksum, size, storage path)."""
     pid = _scope_patient(scope, current, patient_id)
+    require_consent_action(db, current, pid, ConsentAction.SOURCES_UPLOAD)
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing file name")
     safe_name = Path(file.filename).name
@@ -88,6 +95,8 @@ async def upload_source_file(
             detail="Unsupported file type; expected one of: " +
                    ", ".join(sorted(_EXTENSION_TYPES)),
         )
+    if not consent_service.source_type_is_allowed(db, current, pid, file_type):
+        raise HTTPException(status_code=403, detail="This source type is not allowed by consent")
     content = await file.read()
     checksum = hashlib.sha256(content).hexdigest()
 
@@ -125,6 +134,9 @@ def upload_source(
     scope: Annotated[str | None, Depends(get_patient_scope)] = None,
 ):
     pid = _scope_patient(scope, current, patient_id)
+    require_consent_action(db, current, pid, ConsentAction.SOURCES_UPLOAD)
+    if not consent_service.source_type_is_allowed(db, current, pid, body.file_type):
+        raise HTTPException(status_code=403, detail="This source type is not allowed by consent")
     if body.storage_path is not None:
         raise HTTPException(status_code=422, detail="Use the upload endpoint to store files")
     source = Source(
@@ -152,6 +164,7 @@ def list_sources(
     scope: Annotated[str | None, Depends(get_patient_scope)],
     status_filter: str | None = None,
 ):
+    require_consent_action(db, current, scope, ConsentAction.SOURCES_VIEW)
     query = db.query(Source).filter(Source.deletion_status == DeletionStatus.ACTIVE.value)
     if scope:
         query = query.filter(Source.patient_id == scope)
@@ -172,6 +185,7 @@ def get_source(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     source = _get_scoped(db, source_id, scope)
+    require_consent_action(db, current, source.patient_id, ConsentAction.SOURCES_VIEW)
     _require_source_read(db, source, current)
     return _serialize(source, detail=True, patient=current.role == Role.PATIENT.value)
 
@@ -184,6 +198,7 @@ def process_source(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     source = _get_scoped(db, source_id, scope)
+    require_consent_action(db, current, source.patient_id, ConsentAction.SOURCES_PROCESS)
     reconstruction.process_source(db, source.id)
     db.commit()
     notification_service.notify_upload_complete(db, source.patient_id)
@@ -202,6 +217,7 @@ def reconstruct_source(
     scope: Annotated[str | None, Depends(get_patient_scope)] = None,
 ):
     source = _get_scoped(db, source_id, scope)
+    require_consent_action(db, current, source.patient_id, ConsentAction.SOURCES_PROCESS)
     drafts = reconstruction.reconstruct_memories(db, source.patient_id, source_ids=[source.id])
     if submit:
         from app.services import memory_service
@@ -224,6 +240,7 @@ def get_source_file(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     source = _get_scoped(db, source_id, scope)
+    require_consent_action(db, current, source.patient_id, ConsentAction.SOURCES_VIEW)
     _require_source_read(db, source, current)
     if not source.storage_path:
         raise HTTPException(status_code=404, detail="Source file is not stored")
@@ -244,6 +261,7 @@ def soft_delete_source(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     source = _get_scoped(db, source_id, scope)
+    require_consent_action(db, current, source.patient_id, ConsentAction.SOURCES_DELETE)
     source.deletion_status = DeletionStatus.SOFT_DELETED.value
     from app.models.base import utcnow
     source.deleted_at = utcnow()

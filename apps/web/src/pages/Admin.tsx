@@ -174,7 +174,9 @@ function UserMain({ u }: { u: AdminUser }) {
       </div>
       <div className="row-sub">
         {u.email} · {u.role}
-        {u.patient_id ? ` · patient ${u.patient_id}` : ''}
+        {u.patient_ids.length > 0
+          ? ` · ${u.patient_ids.length} patient relationship${u.patient_ids.length === 1 ? '' : 's'}`
+          : ''}
       </div>
     </div>
   )

@@ -2,8 +2,8 @@
 
 RBAC:
   - everyone in scope may view directives and third-party records
-  - patient/guardian/admin may sign a new directive version
-  - guardian/admin manage third-party consent records
+  - patients sign directives; delegated guardians may only make them stricter
+  - patients and explicitly delegated guardians manage third-party consent
 """
 
 from typing import Annotated
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_patient_scope, require_roles
 from app.core.database import get_db
-from app.models.constants import Role
+from app.models.constants import ConsentAction, Role
 from app.models.user import User
 from app.schemas.consent import (
     ConsentDirectiveCreate,
@@ -26,20 +26,13 @@ from app.services import audit_service, consent_service
 
 router = APIRouter(prefix="/consent", tags=["consent"])
 
-_SIGN_ROLES = [Role.PATIENT.value, Role.GUARDIAN.value, Role.ADMINISTRATOR.value]
-_MANAGE_ROLES = [Role.GUARDIAN.value, Role.ADMINISTRATOR.value]
+_SIGN_ROLES = [Role.PATIENT.value, Role.GUARDIAN.value]
+_MANAGE_ROLES = [Role.PATIENT.value, Role.GUARDIAN.value]
 
 
-def _resolve_scope(scope: str | None, patient_id: str | None = None) -> str:
-    """Scope resolution: family/caregiver/clinician/guardian use their linked
-    patient; administrator must pass patient_id explicitly (cross-patient)."""
-    if scope is not None:
-        if patient_id and patient_id != scope:
-            raise HTTPException(status_code=403, detail="Not your patient")
-        return scope
-    if patient_id is None:
-        raise HTTPException(status_code=403, detail="Administrator must pick a patient")
-    return patient_id
+def _require_consent(db: Session, current: User, patient_id: str, action: ConsentAction) -> None:
+    if not consent_service.action_is_allowed(db, current, patient_id, action):
+        raise HTTPException(status_code=403, detail="The active consent directive denies this action")
 
 
 def _directive_json(d) -> dict:
@@ -50,11 +43,11 @@ def _directive_json(d) -> dict:
         "permissions": d.permissions or {},
         "restrictions": d.restrictions or {},
         "guardian_rules": d.guardian_rules or {},
-        "signer": d.signer, "witness": d.witness,
+        "signer": d.signer, "signed_by_user_id": d.signed_by_user_id,
+        "witness": d.witness,
         "training_opt_in": d.training_opt_in,
         "post_death_policy": d.post_death_policy,
         "created_at": d.created_at.isoformat(),
-        "updated_at": d.updated_at.isoformat(),
     }
 
 
@@ -70,11 +63,12 @@ def _third_party_json(c) -> dict:
 @router.get("/directives")
 def list_directives(
     db: Annotated[Session, Depends(get_db)],
-    scope: Annotated[str | None, Depends(get_patient_scope)],
+    current: Annotated[User, Depends(get_current_user)],
+    scope: Annotated[str, Depends(get_patient_scope)],
     patient_id: str | None = None,
 ):
-    pid = _resolve_scope(scope, patient_id)
-    directives = consent_service.list_directives(db, pid)
+    _require_consent(db, current, scope, ConsentAction.CONSENT_VIEW)
+    directives = consent_service.list_directives(db, scope)
     return {"items": [_directive_json(d) for d in directives], "count": len(directives)}
 
 
@@ -82,13 +76,15 @@ def list_directives(
 def get_directive(
     directive_id: str,
     db: Annotated[Session, Depends(get_db)],
-    scope: Annotated[str | None, Depends(get_patient_scope)],
+    current: Annotated[User, Depends(get_current_user)],
+    scope: Annotated[str, Depends(get_patient_scope)],
 ):
     directive = consent_service.get_directive(db, directive_id)
     if directive is None:
         raise HTTPException(status_code=404, detail="Directive not found")
-    if scope is not None and scope != directive.patient_id:
+    if scope != directive.patient_id:
         raise HTTPException(status_code=403, detail="Not your patient")
+    _require_consent(db, current, scope, ConsentAction.CONSENT_VIEW)
     return _directive_json(directive)
 
 
@@ -97,19 +93,30 @@ def create_directive(
     body: ConsentDirectiveCreate,
     db: Annotated[Session, Depends(get_db)],
     current: Annotated[User, Depends(require_roles(*_SIGN_ROLES))],
-    scope: Annotated[str | None, Depends(get_patient_scope)],
+    scope: Annotated[str, Depends(get_patient_scope)],
     patient_id: str | None = None,
 ):
-    pid = _resolve_scope(scope, patient_id)
+    pid = scope
+    previous = consent_service.current_directive(db, pid)
+    if current.role == Role.GUARDIAN.value:
+        _require_consent(db, current, pid, ConsentAction.CONSENT_MANAGE)
+        if previous is None or not consent_service.guardian_revision_is_restrictive(previous, body):
+            raise HTTPException(
+                status_code=403,
+                detail="A guardian may only narrow the current patient directive",
+            )
+    if not consent_service.guardian_nomination_is_valid(db, pid, body.guardian_rules.guardian_id):
+        raise HTTPException(status_code=422, detail="guardian_id must identify an active guardian")
     directive = consent_service.create_directive(
         db, pid,
-        permissions=body.permissions,
-        restrictions=body.restrictions,
-        guardian_rules=body.guardian_rules,
+        permissions=body.permissions.model_dump(mode="json"),
+        restrictions=body.restrictions.model_dump(mode="json"),
+        guardian_rules=body.guardian_rules.model_dump(mode="json"),
         signer=body.signer or current.full_name,
+        signed_by_user_id=current.id,
         witness=body.witness,
         training_opt_in=body.training_opt_in,
-        post_death_policy=body.post_death_policy,
+        post_death_policy=body.post_death_policy.model_dump(mode="json"),
     )
     audit_service.log_action(db, current.id, "signed", "consent_directive", directive.id,
                              {"patient_id": pid, "version": directive.version})
@@ -120,11 +127,12 @@ def create_directive(
 @router.get("/third-parties")
 def list_third_party(
     db: Annotated[Session, Depends(get_db)],
-    scope: Annotated[str | None, Depends(get_patient_scope)],
+    current: Annotated[User, Depends(get_current_user)],
+    scope: Annotated[str, Depends(get_patient_scope)],
     patient_id: str | None = None,
 ):
-    pid = _resolve_scope(scope, patient_id)
-    records = consent_service.list_third_party(db, pid)
+    _require_consent(db, current, scope, ConsentAction.CONSENT_VIEW)
+    records = consent_service.list_third_party(db, scope)
     return {"items": [_third_party_json(c) for c in records], "count": len(records)}
 
 
@@ -134,10 +142,11 @@ def create_third_party(
     body: ThirdPartyConsentCreate,
     db: Annotated[Session, Depends(get_db)],
     current: Annotated[User, Depends(require_roles(*_MANAGE_ROLES))],
-    scope: Annotated[str | None, Depends(get_patient_scope)],
+    scope: Annotated[str, Depends(get_patient_scope)],
     patient_id: str | None = None,
 ):
-    pid = _resolve_scope(scope, patient_id)
+    pid = scope
+    _require_consent(db, current, pid, ConsentAction.CONSENT_MANAGE)
     record = consent_service.create_third_party(
         db, pid,
         person_name=body.person_name,
@@ -158,13 +167,14 @@ def update_third_party(
     body: ThirdPartyConsentUpdate,
     db: Annotated[Session, Depends(get_db)],
     current: Annotated[User, Depends(require_roles(*_MANAGE_ROLES))],
-    scope: Annotated[str | None, Depends(get_patient_scope)],
+    scope: Annotated[str, Depends(get_patient_scope)],
 ):
     record = consent_service.get_third_party(db, record_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Consent record not found")
-    if scope is not None and scope != record.patient_id:
+    if scope != record.patient_id:
         raise HTTPException(status_code=403, detail="Not your patient")
+    _require_consent(db, current, scope, ConsentAction.CONSENT_MANAGE)
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     consent_service.update_third_party(db, record, fields=fields)
     audit_service.log_action(db, current.id, "updated", "third_party_consent", record.id)
@@ -177,13 +187,14 @@ def delete_third_party(
     record_id: str,
     db: Annotated[Session, Depends(get_db)],
     current: Annotated[User, Depends(require_roles(*_MANAGE_ROLES))],
-    scope: Annotated[str | None, Depends(get_patient_scope)],
+    scope: Annotated[str, Depends(get_patient_scope)],
 ):
     record = consent_service.get_third_party(db, record_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Consent record not found")
-    if scope is not None and scope != record.patient_id:
+    if scope != record.patient_id:
         raise HTTPException(status_code=403, detail="Not your patient")
+    _require_consent(db, current, scope, ConsentAction.CONSENT_MANAGE)
     db.delete(record)
     audit_service.log_action(db, current.id, "deleted", "third_party_consent", record_id)
     db.commit()

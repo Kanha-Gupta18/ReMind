@@ -3,9 +3,9 @@
 import pytest
 from fastapi import HTTPException
 
-from app.api.deps import get_patient_scope
+from app.api.deps import _resolve_patient_scope
 from app.core.database import SessionLocal
-from app.core.security import create_access_token, hash_password
+from app.core.security import hash_password
 from app.models.base import new_id
 from app.models.constants import (
     DeletionStatus,
@@ -21,8 +21,8 @@ from app.models.conversation import ConversationSession
 from app.models.graph import GraphEdge, GraphNode
 from app.models.memory import Evidence, MemoryCard, Source
 from app.models.people import FaceMatch, Person
-from app.models.user import User
-from tests.conftest import auth
+from app.models.user import AuthSession, AuditLog, User
+from tests.conftest import PASSWORD, auth
 from tests.test_memories_rbac import _create_memory
 from tests.test_sources_upload import _upload
 
@@ -30,30 +30,36 @@ from tests.test_sources_upload import _upload
 @pytest.mark.parametrize("role", [r.value for r in Role
                                   if r not in {Role.PATIENT, Role.ADMINISTRATOR}])
 def test_unlinked_role_never_receives_unrestricted_scope(role):
-    with pytest.raises(HTTPException) as error:
-        get_patient_scope(User(role=role, patient_id=None))
-    assert error.value.status_code == 403
+    with SessionLocal() as db:
+        with pytest.raises(HTTPException) as error:
+            _resolve_patient_scope(db, User(id=new_id(), role=role), None)
+        assert error.value.status_code == 403
 
 
 def test_unlinked_account_is_rejected_by_scoped_api(client):
     user_id = new_id()
+    email = f"unlinked.{user_id}@remind.dev"
     with SessionLocal() as db:
         db.add(User(
             id=user_id,
-            email=f"unlinked.{user_id}@remind.dev",
-            password_hash=hash_password("testpass123"),
+            email=email,
+            password_hash=hash_password(PASSWORD),
             full_name="Unlinked caregiver",
             role=Role.CAREGIVER.value,
         ))
         db.commit()
 
-    token = create_access_token(user_id, Role.CAREGIVER.value, None)
+    login = client.post("/auth/login", json={"email": email, "password": PASSWORD})
+    assert login.status_code == 200
+    token = login.json()["access_token"]
     try:
         response = client.get("/sources", headers=auth(token))
         assert response.status_code == 403
         assert response.json()["detail"] == "No patient relationship is configured"
     finally:
         with SessionLocal() as db:
+            db.query(AuditLog).filter(AuditLog.user_id == user_id).delete()
+            db.query(AuthSession).filter(AuthSession.user_id == user_id).delete()
             db.query(User).filter(User.id == user_id).delete()
             db.commit()
 

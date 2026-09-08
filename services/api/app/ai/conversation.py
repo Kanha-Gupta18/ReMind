@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.models.base import utcnow
 from app.models.constants import (
+    ConsentAction,
     ConversationSessionStatus,
     ConversationSessionType,
     DeletionStatus,
@@ -236,7 +237,7 @@ def _build_tools(db, patient_id, session_id, viewer_role):
                 .all()
             )
             if viewer_role == Role.PATIENT.value:
-                person = [p for p in person if patient_delivery_service.person_is_visible(p)]
+                person = [p for p in person if patient_delivery_service.person_is_visible(db, p)]
             person = next(
                 (p for p in person if name.lower() in [a.lower() for a in (p.aliases or [])]),
                 None,
@@ -320,7 +321,7 @@ def _build_tools(db, patient_id, session_id, viewer_role):
         people = []
         for face in faces:
             person = db.get(Person, face.person_id) if face.person_id else None
-            if patient_delivery_service.person_is_visible(person):
+            if patient_delivery_service.person_is_visible(db, person):
                 people.append({"name": person.name, "state": face.face_match_state})
         return {
             "found": True,
@@ -395,11 +396,13 @@ def _build_tools(db, patient_id, session_id, viewer_role):
     def request_family_help(reason: str | None = None) -> dict:
         created = notification_service.notify_role(
             db, patient_id, Role.FAMILY_REVIEWER.value,
+            ConsentAction.CONVERSATIONS_VIEW,
             NotificationType.FAMILY_HELP.value,
             "The patient asked for family help in conversation.",
         )
         created += notification_service.notify_role(
             db, patient_id, Role.FAMILY_CONTRIBUTOR.value,
+            ConsentAction.CONVERSATIONS_VIEW,
             NotificationType.FAMILY_HELP.value,
             "The patient asked for family help in conversation.",
         )

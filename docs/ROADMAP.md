@@ -7,14 +7,15 @@
 - [x] Filter patient conversation and graph-derived traversal to confirmed,
   non-disputed facts.
 - [x] Remove caller-controlled server file paths and constrain all source reads to managed storage.
-- Turn consent directives into authorization policies across upload, access, retrieval, and delivery.
+- [x] Turn consent directives into authorization policies across upload, access, retrieval, and delivery.
 - Correct memory revision promotion and rejection behavior.
 - Implement source deletion propagation and regression tests.
 - Add adversarial tests for the product's core invariant.
 
 ## Milestone 1 — Trusted family memory vault
 
-- Patient profile and onboarding workflows.
+- [x] Patient profile and onboarding workflows.
+- [x] Revocable multi-patient relationships and server-backed login sessions.
 - Secure image upload and manual people/event tagging.
 - Source provenance and family review workspace.
 - Accessible patient home, photo-led memory cards, timeline, and narration.

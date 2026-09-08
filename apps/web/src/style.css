@@ -98,7 +98,7 @@ a {
 .app-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* topbar */
@@ -189,6 +189,31 @@ a {
   align-items: center;
   gap: 0.8rem;
   font-size: 0.9rem;
+}
+
+.patient-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.patient-switcher select {
+  max-width: 11rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.3rem 1.75rem 0.3rem 0.5rem;
+}
+
+.patient-switcher select:focus-visible {
+  outline: 3px solid rgb(61 122 90 / 0.24);
+  outline-offset: 2px;
 }
 
 .account-id {
@@ -661,6 +686,300 @@ a {
   gap: 0.5rem;
 }
 
+/* patient profile */
+
+.profile-heading {
+  align-items: flex-start;
+}
+
+.profile-heading .lead {
+  margin: 0.25rem 0 0;
+}
+
+.profile-form {
+  display: grid;
+  gap: 1.35rem;
+  margin-top: 1.75rem;
+}
+
+.profile-form fieldset {
+  margin: 0;
+  padding: 1.25rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.profile-form fieldset:disabled {
+  opacity: 0.8;
+}
+
+.profile-form legend {
+  padding: 0 0.75rem 0 0;
+  color: var(--green-strong);
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 1.25rem;
+}
+
+.form-grid label,
+.accessibility-options > label:not(.choice-row),
+.relationship-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.profile-form input,
+.profile-form select,
+.relationship-form input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.6rem 0.75rem;
+  transition: border-color var(--speed) var(--ease), box-shadow var(--speed) var(--ease);
+}
+
+.profile-form input:focus-visible,
+.profile-form select:focus-visible,
+.relationship-form input:focus-visible {
+  border-color: var(--green);
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(61 122 90 / 0.18);
+}
+
+.accessibility-options {
+  display: grid;
+  grid-template-columns: minmax(11rem, 1fr) repeat(2, minmax(10rem, 1fr));
+  gap: 0.85rem 1rem;
+  align-items: end;
+}
+
+.choice-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.75rem;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 550;
+}
+
+.choice-row input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--green);
+}
+
+.profile-section {
+  display: grid;
+  gap: 1rem;
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.profile-section h2,
+.profile-section p {
+  margin-top: 0;
+}
+
+.relationship-form {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+}
+
+.relationship-form .error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.relationship-list {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+
+.relationship-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.relationship-name {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.relationship-row p {
+  margin: 0.2rem 0 0;
+  color: var(--ink);
+}
+
+.relationship-row span:not(.badge) {
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.empty-state {
+  max-width: 34rem;
+  margin: 4rem auto;
+  text-align: center;
+}
+
+.empty-state.compact {
+  margin: 1rem 0;
+  padding: 1.25rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+
+.empty-state p {
+  color: var(--ink-soft);
+}
+
+.profile-skeleton {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-top: 1.75rem;
+}
+
+.profile-skeleton span {
+  height: 4.5rem;
+  border-radius: 10px;
+  background: var(--surface-muted);
+  border: 1px solid var(--line-soft);
+}
+
+.profile-skeleton span:last-child {
+  grid-column: 1 / -1;
+}
+
+.onboarding-page,
+.onboarding-complete {
+  max-width: 48rem;
+  margin: 0 auto;
+}
+
+.onboarding-intro {
+  max-width: 38rem;
+  margin-bottom: 2rem;
+}
+
+.onboarding-intro p,
+.onboarding-complete > p {
+  color: var(--ink-soft);
+  font-size: 1.05rem;
+}
+
+.onboarding-form {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.onboarding-form fieldset {
+  margin: 0;
+  padding: 1.25rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.onboarding-form legend {
+  padding-right: 0.75rem;
+  color: var(--green-strong);
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.onboarding-form .form-grid label,
+.onboarding-form .accessibility-options > label:not(.choice-row) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.onboarding-form input:not([type="checkbox"]),
+.onboarding-form select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  padding: 0.6rem 0.75rem;
+}
+
+.onboarding-form input:focus-visible,
+.onboarding-form select:focus-visible {
+  outline: 3px solid rgb(61 122 90 / 0.2);
+  outline-offset: 2px;
+}
+
+.privacy-start {
+  border: 1px solid #cde2d2;
+  border-radius: var(--radius);
+  background: var(--green-soft);
+  padding: 1rem 1.15rem;
+}
+
+.privacy-start p {
+  margin: 0.3rem 0 0;
+  color: var(--green-strong);
+}
+
+.setup-status {
+  color: var(--green-strong) !important;
+  font-size: 0.9rem !important;
+  font-weight: 700;
+}
+
+.onboarding-complete {
+  margin-top: 4rem;
+}
+
+@media (max-width: 800px) {
+  .form-grid,
+  .accessibility-options,
+  .relationship-form,
+  .choice-grid,
+  .permission-grid,
+  .directive-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .relationship-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 /* stats */
 
 .stat-grid {
@@ -911,6 +1230,129 @@ code {
 }
 
 /* consent / admin helpers */
+
+.directive-card {
+  align-items: stretch;
+}
+
+.directive-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem 1.5rem;
+  margin: 1rem 0 0;
+}
+
+.directive-summary div {
+  min-width: 0;
+}
+
+.directive-summary dt {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.directive-summary dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.consent-editor .page-head p {
+  margin: 0.25rem 0 0;
+}
+
+.consent-form {
+  display: grid;
+  gap: 1.35rem;
+  margin-top: 1.25rem;
+}
+
+.consent-form fieldset {
+  margin: 0;
+  padding: 1rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.consent-form legend {
+  padding-right: 0.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.consent-form fieldset > label,
+.consent-form .form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.consent-form input:not([type="checkbox"]),
+.consent-form select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+}
+
+.consent-form input:focus-visible,
+.consent-form select:focus-visible {
+  outline: 3px solid rgb(61 122 90 / 0.2);
+  outline-offset: 2px;
+}
+
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.25rem 1rem;
+}
+
+.permission-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0.65rem 0.85rem 0.85rem;
+}
+
+.role-permissions {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.role-permissions details {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.role-permissions summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0.85rem;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.role-permissions summary span {
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  font-weight: 550;
+}
+
+.consent-note {
+  margin: 0;
+  border: 1px solid #e8d5a8;
+  border-radius: 10px;
+  background: var(--gold-soft);
+  color: #68481a;
+  padding: 0.75rem 0.9rem;
+}
 
 .json-block {
   margin-top: 0.75rem;

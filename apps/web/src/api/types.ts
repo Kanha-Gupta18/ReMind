@@ -7,18 +7,18 @@ export type Role =
   | 'clinician'
   | 'administrator'
 
-export const ANALYTICS_ROLES: Role[] = ['caregiver', 'clinician', 'guardian', 'administrator']
-export const INGESTION_ROLES: Role[] = ['family_contributor', 'family_reviewer', 'guardian', 'administrator']
-export const REVIEW_ROLES: Role[] = ['family_reviewer', 'guardian', 'administrator']
-export const RESTRICT_ROLES: Role[] = ['caregiver', 'guardian', 'clinician', 'administrator']
+export const ANALYTICS_ROLES: Role[] = ['caregiver', 'clinician', 'guardian']
+export const INGESTION_ROLES: Role[] = ['family_contributor', 'family_reviewer', 'guardian']
+export const REVIEW_ROLES: Role[] = ['family_reviewer', 'guardian']
+export const RESTRICT_ROLES: Role[] = ['caregiver', 'guardian', 'clinician']
 export const CREATE_MEMORY_ROLES: Role[] = [
   'patient',
   'family_contributor',
   'family_reviewer',
   'guardian',
 ]
-export const SIGN_ROLES: Role[] = ['patient', 'guardian', 'administrator']
-export const MANAGE_CONSENT_ROLES: Role[] = ['guardian', 'administrator']
+export const SIGN_ROLES: Role[] = ['patient', 'guardian']
+export const MANAGE_CONSENT_ROLES: Role[] = ['patient', 'guardian']
 export const ADMIN_ROLES: Role[] = ['administrator']
 export const CHAT_READ_ROLES: Role[] = [
   'patient',
@@ -26,15 +26,13 @@ export const CHAT_READ_ROLES: Role[] = [
   'caregiver',
   'guardian',
   'clinician',
-  'administrator',
 ]
-export const PEOPLE_CREATE_ROLES: Role[] = ['family_contributor', 'family_reviewer', 'guardian', 'administrator']
-export const PEOPLE_EDIT_ROLES: Role[] = ['family_reviewer', 'guardian', 'administrator']
+export const PEOPLE_CREATE_ROLES: Role[] = ['family_contributor', 'family_reviewer', 'guardian']
+export const PEOPLE_EDIT_ROLES: Role[] = ['family_reviewer', 'guardian']
 export const GRAPH_CREATE_ROLES: Role[] = [
   'family_contributor',
   'family_reviewer',
   'guardian',
-  'administrator',
   'clinician',
   'caregiver',
 ]
@@ -42,19 +40,75 @@ export const GRAPH_READ_ROLES: Role[] = [
   'family_contributor',
   'family_reviewer',
   'guardian',
-  'administrator',
   'clinician',
   'caregiver',
 ]
-export const GRAPH_REVIEW_ROLES: Role[] = ['family_reviewer', 'guardian', 'administrator']
-export const SAFETY_ROLES: Role[] = ['caregiver', 'clinician', 'guardian', 'administrator']
+export const GRAPH_REVIEW_ROLES: Role[] = ['family_reviewer', 'guardian']
+export const SAFETY_ROLES: Role[] = ['caregiver', 'clinician', 'guardian']
 
 export interface User {
   id: string
   email: string
   full_name: string
   role: Role
-  patient_id: string | null
+  patient_ids: string[]
+}
+
+export interface AccessibilityProfile {
+  text_size: 'standard' | 'large' | 'extra_large'
+  high_contrast: boolean
+  reduced_motion: boolean
+  narration_auto_start: boolean
+  simplified_navigation: boolean
+}
+
+export interface PatientProfile {
+  id: string
+  user_id: string
+  preferred_name: string
+  preferred_language: string
+  accessibility_profile: AccessibilityProfile
+  date_of_birth: string | null
+  diagnosis: string | null
+  diagnosis_date: string | null
+  cognition_level: 'early' | 'moderate' | 'advanced' | null
+  safety_level: 'NORMAL' | 'CAUTION' | 'CAREGIVER_RECOMMENDED' | 'CAREGIVER_REQUIRED' | 'HIDDEN'
+  status: 'active' | 'inactive' | 'deceased'
+  created_at: string
+  updated_at: string
+}
+
+export interface PatientProfileCreate {
+  preferred_name: string
+  preferred_language: string
+  accessibility_profile: AccessibilityProfile
+  date_of_birth: string | null
+  diagnosis: string | null
+  diagnosis_date: string | null
+  cognition_level: PatientProfile['cognition_level']
+  safety_level: PatientProfile['safety_level']
+  status: PatientProfile['status']
+}
+
+export type PatientProfileUpdate = Partial<Omit<PatientProfile, 'id' | 'user_id' | 'created_at' | 'updated_at'>>
+
+export interface Relationship {
+  id: string
+  user_id: string
+  patient_id: string
+  full_name: string
+  email: string
+  role: Role
+  relationship: string
+  status: 'active' | 'revoked'
+  granted_by: string | null
+  created_at: string
+  revoked_at: string | null
+}
+
+export interface AvailablePatient {
+  id: string
+  preferred_name: string
 }
 
 export interface LoginResponse {
@@ -211,25 +265,61 @@ export interface ConsentDirective {
   version: number
   valid_from: string
   supersedes_id: string | null
-  permissions: Record<string, unknown>
-  restrictions: Record<string, unknown>
-  guardian_rules: Record<string, unknown>
+  permissions: ConsentPermissions
+  restrictions: ConsentRestrictions
+  guardian_rules: GuardianRules
   signer: string | null
   witness: string | null
   training_opt_in: boolean
-  post_death_policy: Record<string, unknown> | null
+  post_death_policy: PostDeathPolicy
   created_at: string
-  updated_at: string
 }
 
 export interface ConsentDirectiveCreate {
-  permissions?: Record<string, unknown>
-  restrictions?: Record<string, unknown>
-  guardian_rules?: Record<string, unknown>
+  permissions?: ConsentPermissions
+  restrictions?: ConsentRestrictions
+  guardian_rules?: GuardianRules
   signer?: string | null
   witness?: string | null
   training_opt_in?: boolean
-  post_death_policy?: Record<string, unknown> | null
+  post_death_policy?: PostDeathPolicy
+}
+
+export interface PatientOnboardingRequest {
+  profile: PatientProfileCreate
+  consent: ConsentDirectiveCreate
+}
+
+export type SourceType = 'photo' | 'video' | 'audio' | 'document' | 'message_export'
+export type ConsentAction =
+  | 'profile:view' | 'profile:edit' | 'relationships:view' | 'relationships:manage'
+  | 'consent:view' | 'consent:manage' | 'sources:view' | 'sources:upload'
+  | 'sources:process' | 'sources:delete' | 'memories:view' | 'memories:create'
+  | 'memories:edit' | 'memories:review' | 'people:view' | 'people:create'
+  | 'people:verify' | 'graph:view' | 'graph:edit' | 'graph:review'
+  | 'conversations:view' | 'safety:view' | 'safety:manage' | 'engagement:view'
+
+export interface ConsentPermissions {
+  allowed_data_sources: SourceType[]
+  role_actions: Partial<Record<Role, ConsentAction[]>>
+  third_party_visibility: 'consented_only' | 'family_reviewed'
+}
+
+export interface ConsentRestrictions {
+  prohibited_data_categories: string[]
+  blocked_person_ids: string[]
+}
+
+export interface GuardianRules {
+  guardian_id: string | null
+  authority: 'none' | 'shared' | 'delegated'
+  allowed_actions: ConsentAction[]
+}
+
+export interface PostDeathPolicy {
+  mode: 'keep_private' | 'transfer_to_guardian' | 'delete'
+  beneficiary_user_id?: string | null
+  retention_days?: number | null
 }
 
 export interface ThirdPartyConsent {
@@ -264,7 +354,7 @@ export interface AdminUser {
   email: string
   full_name: string
   role: Role
-  patient_id: string | null
+  patient_ids: string[]
   phone: string | null
   mfa_enabled: boolean
   is_active: boolean

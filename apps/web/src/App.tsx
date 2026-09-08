@@ -11,6 +11,8 @@ import { Graph } from './pages/Graph'
 import { Login } from './pages/Login'
 import { MemoryDetail } from './pages/MemoryDetail'
 import { People } from './pages/People'
+import { Profile } from './pages/Profile'
+import { Onboarding } from './pages/Onboarding'
 import { Places } from './pages/Places'
 import { Review } from './pages/Review'
 import { Safety } from './pages/Safety'
@@ -42,6 +44,8 @@ export default function App() {
             <Route path="/places" element={<Places />} />
             <Route path="/chat" element={<Chat />} />
             <Route path="/people" element={<People />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/graph" element={<Graph />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/sources" element={<Sources />} />

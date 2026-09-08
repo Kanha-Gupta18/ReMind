@@ -19,7 +19,7 @@ def test_upload_process_reconstruct(client, tokens):
     r = client.get("/sources", headers=auth(tokens["caregiver"]))
     assert r.status_code == 200 and r.json()["count"] >= 1
     r = client.get("/sources", headers=auth(tokens["admin"]))
-    assert r.status_code == 200
+    assert r.status_code == 403
 
 
 def test_upload_rbac(client, tokens):

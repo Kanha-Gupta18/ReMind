@@ -6,17 +6,24 @@ from app.models.constants import (
     DeletionStatus,
     EdgeStatus,
     EvidenceReviewStatus,
+    FaceMatchState,
     GraphNodeType,
     IdentityStatus,
     Role,
 )
 from app.models.graph import GraphEdge, GraphNode
 from app.models.memory import Evidence, MemoryCard, Source
-from app.models.people import Person
-from app.services import safety_service
+from app.models.people import FaceMatch, Person
+from app.services import consent_service, safety_service
 
 
 def memory_is_visible(db: Session, memory: MemoryCard) -> bool:
+    if not consent_service.content_categories_are_allowed(
+        db,
+        memory.patient_id,
+        memory.sensitivity_flags,
+    ):
+        return False
     result = safety_service.evaluate_release(
         memory,
         safety_service.resolve_safety_level(db, memory.patient_id),
@@ -27,6 +34,17 @@ def memory_is_visible(db: Session, memory: MemoryCard) -> bool:
 
 def source_is_visible(db: Session, source: Source | None) -> bool:
     if source is None or source.deletion_status != DeletionStatus.ACTIVE.value:
+        return False
+    identified_people = (
+        db.query(Person)
+        .join(FaceMatch, FaceMatch.person_id == Person.id)
+        .filter(
+            FaceMatch.source_id == source.id,
+            FaceMatch.face_match_state == FaceMatchState.FAMILY_CONFIRMED.value,
+        )
+        .all()
+    )
+    if any(not person_is_visible(db, person) for person in identified_people):
         return False
     memories = (
         db.query(MemoryCard)
@@ -41,8 +59,12 @@ def source_is_visible(db: Session, source: Source | None) -> bool:
     return any(memory_is_visible(db, memory) for memory in memories)
 
 
-def person_is_visible(person: Person | None) -> bool:
-    return bool(person and person.identity_status == IdentityStatus.FAMILY_CONFIRMED.value)
+def person_is_visible(db: Session, person: Person | None) -> bool:
+    return bool(
+        person
+        and person.identity_status == IdentityStatus.FAMILY_CONFIRMED.value
+        and consent_service.person_visibility_is_allowed(db, person)
+    )
 
 
 def person_for_node(db: Session, node: GraphNode) -> Person | None:
@@ -94,7 +116,7 @@ def visible_relations(db: Session, patient_id: str, node_id: str) -> list[dict]:
         if other.node_type in {
             GraphNodeType.PERSON.value,
             GraphNodeType.FAMILY_MEMBER.value,
-        } and not person_is_visible(person_for_node(db, other)):
+        } and not person_is_visible(db, person_for_node(db, other)):
             continue
         if other.node_type == GraphNodeType.MEMORY.value:
             memory = memory_for_node(db, other)

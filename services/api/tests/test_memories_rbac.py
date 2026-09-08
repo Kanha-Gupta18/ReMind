@@ -34,7 +34,7 @@ def test_memory_lifecycle_and_rbac(client, tokens):
 
 def test_admin_without_scope(client, tokens):
     r = client.get("/memories", headers=auth(tokens["admin"]))
-    assert r.status_code == 200 and r.json()["count"] == 0
+    assert r.status_code == 403
     r = client.get("/timeline", headers=auth(tokens["admin"]))
     assert r.status_code == 403
 

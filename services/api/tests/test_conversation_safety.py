@@ -74,8 +74,8 @@ def test_safety_level(client, tokens, users):
     r = client.get("/safety/level", headers=auth(tokens["admin"]))
     assert r.status_code == 403
     r = client.get(f"/safety/level?patient_id={users['patient'].id}", headers=auth(tokens["admin"]))
-    assert r.status_code == 200
+    assert r.status_code == 403
     r = client.get("/safety/events", headers=auth(tokens["admin"]))
     assert r.status_code == 403
     r = client.get(f"/safety/events?patient_id={users['patient'].id}", headers=auth(tokens["admin"]))
-    assert r.status_code == 200
+    assert r.status_code == 403
