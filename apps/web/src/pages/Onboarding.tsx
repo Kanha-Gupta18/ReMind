@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ApiError, api } from '../api/client'
+import { ApiError, api, PATIENT_PROFILE_UPDATED_EVENT } from '../api/client'
 import type { AccessibilityProfile, PatientProfileCreate } from '../api/types'
 import { useApiData } from '../api/useApiData'
 import { useAuth } from '../auth/AuthContext'
@@ -74,6 +74,7 @@ export function Onboarding() {
           post_death_policy: { mode: 'keep_private', beneficiary_user_id: null, retention_days: null },
         },
       })
+      window.dispatchEvent(new Event(PATIENT_PROFILE_UPDATED_EVENT))
       navigate('/consent')
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Setup could not be completed.')

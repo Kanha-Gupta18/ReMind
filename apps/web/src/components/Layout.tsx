@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import {
@@ -10,7 +11,7 @@ import {
   SAFETY_ROLES,
 } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
-import { api } from '../api/client'
+import { api, PATIENT_PROFILE_UPDATED_EVENT } from '../api/client'
 import { useApiData } from '../api/useApiData'
 import { Icon } from './Icon'
 import { Notifications } from './Notifications'
@@ -18,6 +19,12 @@ import { Notifications } from './Notifications'
 export function Layout() {
   const { user, selectedPatientId, selectPatient, logout } = useAuth()
   const patients = useApiData(() => api.availablePatients(), [user?.id])
+
+  useEffect(() => {
+    const refreshPatientNames = () => patients.reload()
+    window.addEventListener(PATIENT_PROFILE_UPDATED_EVENT, refreshPatientNames)
+    return () => window.removeEventListener(PATIENT_PROFILE_UPDATED_EVENT, refreshPatientNames)
+  }, [patients.reload])
 
   const navLink = ({ isActive }: { isActive: boolean }) =>
     `nav-link${isActive ? ' active' : ''}`
@@ -28,6 +35,10 @@ export function Layout() {
   const canChat = user !== null && CHAT_READ_ROLES.includes(user.role)
   const canSafety = user !== null && SAFETY_ROLES.includes(user.role)
   const canGraph = user !== null && GRAPH_READ_ROLES.includes(user.role)
+  const selectedPatient = patients.data?.items.find((patient) => patient.id === selectedPatientId)
+  const accountName = user?.role === 'patient'
+    ? selectedPatient?.preferred_name ?? user.full_name
+    : user?.full_name
 
   const items: Array<[string, string, ReactNode]> = []
   if (!canAdmin) {
@@ -83,7 +94,7 @@ export function Layout() {
           )}
           <Notifications />
           <div className="account-id">
-            <span className="account-name">{user?.full_name}</span>
+            <span className="account-name">{accountName}</span>
             <span className="account-role">{user?.role}</span>
           </div>
           <button type="button" className="btn btn-ghost" onClick={logout}>

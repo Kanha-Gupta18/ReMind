@@ -26,6 +26,7 @@ import type {
   PersonCreate,
   PersonUpdate,
   PatientProfile,
+  PatientCapabilities,
   PatientOnboardingRequest,
   PatientProfileUpdate,
   Relationship,
@@ -61,6 +62,7 @@ let refreshInFlight: Promise<boolean> | null = null
 
 export const ACCESS_KEY = 'remind.access_token'
 export const REFRESH_KEY = 'remind.refresh_token'
+export const PATIENT_PROFILE_UPDATED_EVENT = 'remind:patient-profile-updated'
 
 export function setSessionTokens(access: string | null, refresh: string | null) {
   accessToken = access
@@ -175,6 +177,7 @@ export const api = {
   me: () => request<User>('/auth/me'),
   availablePatients: () =>
     request<{ items: AvailablePatient[]; count: number }>('/patients/available'),
+  patientCapabilities: () => request<PatientCapabilities>('/patients/capabilities'),
 
   patientProfile: () => request<PatientProfile>('/patients/profile'),
   completeOnboarding: (payload: PatientOnboardingRequest) =>

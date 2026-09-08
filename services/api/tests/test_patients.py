@@ -109,6 +109,17 @@ def test_profile_access_follows_role_and_consent(client, tokens):
     assert updated.json()["preferred_name"] == "Preferred patient name"
 
 
+def test_patient_capabilities_reflect_current_consent(client, tokens):
+    patient = client.get("/patients/capabilities", headers=auth(tokens["patient"]))
+    assert patient.status_code == 200
+    assert ConsentAction.PROFILE_EDIT.value in patient.json()["actions"]
+
+    clinician = client.get("/patients/capabilities", headers=auth(tokens["clinician"]))
+    assert clinician.status_code == 200
+    assert ConsentAction.PROFILE_VIEW.value in clinician.json()["actions"]
+    assert ConsentAction.PROFILE_EDIT.value not in clinician.json()["actions"]
+
+
 def test_relationship_grant_and_revocation_change_access_immediately(client, tokens, users):
     user_id = new_id()
     email = f"new-family.{user_id}@remind.dev"

@@ -14,6 +14,7 @@ from app.schemas.consent import ConsentDirectiveOut
 from app.schemas.patient import (
     PatientOnboardingOut,
     PatientOnboardingRequest,
+    PatientCapabilitiesOut,
     PatientProfileCreate,
     PatientProfileOut,
     PatientProfileUpdate,
@@ -90,6 +91,19 @@ def available_patients(
         "preferred_name": profile.preferred_name if profile else patient.full_name,
     } for _, patient, profile in rows]
     return {"items": items, "count": len(items)}
+
+
+@router.get("/capabilities", response_model=PatientCapabilitiesOut)
+def patient_capabilities(
+    db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(get_current_user)],
+    scope: Annotated[str, Depends(get_patient_scope)],
+):
+    """Return the actions currently allowed for this account and patient."""
+    return PatientCapabilitiesOut(actions=[
+        action for action in ConsentAction
+        if consent_service.action_is_allowed(db, current, scope, action)
+    ])
 
 
 @router.post("/onboarding", response_model=PatientOnboardingOut,

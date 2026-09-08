@@ -89,7 +89,7 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 alembic upgrade head
 python scripts/seed_user.py patient@example.com "Pat Patient" patient
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
 Review `.env` before starting the service. Never use the example JWT secret or database credentials in a deployed environment.

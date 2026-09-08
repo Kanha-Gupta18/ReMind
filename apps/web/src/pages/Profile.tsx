@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { ApiError, api } from '../api/client'
+import { ApiError, api, PATIENT_PROFILE_UPDATED_EVENT } from '../api/client'
 import type { PatientProfile, PatientProfileUpdate, Relationship } from '../api/types'
 import { useApiData } from '../api/useApiData'
 import { useAuth } from '../auth/AuthContext'
 import { Badge } from '../components/Badge'
-
-const EDIT_ROLES = ['patient', 'family_reviewer', 'guardian']
 
 function readableRole(role: string) {
   return role.replaceAll('_', ' ')
@@ -15,8 +13,10 @@ function readableRole(role: string) {
 export function Profile() {
   const { user, selectedPatientId } = useAuth()
   const profile = useApiData(() => api.patientProfile(), [selectedPatientId])
-  const relationships = useApiData(() => api.relationships(), [selectedPatientId])
-  const canEdit = user !== null && EDIT_ROLES.includes(user.role)
+  const capabilities = useApiData(() => api.patientCapabilities(), [selectedPatientId])
+  const canEdit = capabilities.data?.actions.includes('profile:edit') ?? false
+  const canViewRelationships = capabilities.data?.actions.includes('relationships:view') ?? false
+  const canManageRelationships = capabilities.data?.actions.includes('relationships:manage') ?? false
   const [notice, setNotice] = useState<string | null>(null)
 
   if (user?.role !== 'patient' && user?.patient_ids.length && !selectedPatientId) {
@@ -39,6 +39,7 @@ export function Profile() {
       </div>
 
       {notice && <p className="success" role="status">{notice}</p>}
+      {capabilities.error && <p className="error" role="alert">Permissions could not be checked. This profile will remain read-only.</p>}
       {profile.loading && <ProfileSkeleton />}
       {profile.error && <p className="error" role="alert">{profile.error}</p>}
       {profile.data && (
@@ -48,6 +49,7 @@ export function Profile() {
           onSaved={() => {
             setNotice('Profile changes saved.')
             profile.reload()
+            window.dispatchEvent(new Event(PATIENT_PROFILE_UPDATED_EVENT))
           }}
         />
       )}
@@ -57,27 +59,11 @@ export function Profile() {
           <h2>Authorized relationships</h2>
           <p className="muted">Access depends on both an active relationship and the current consent directive.</p>
         </div>
-        {canEdit && <RelationshipForm onAdded={() => relationships.reload()} />}
-        {relationships.loading && <p className="muted">Loading relationships...</p>}
-        {relationships.error && <p className="error" role="alert">{relationships.error}</p>}
-        {relationships.data && relationships.data.items.length === 0 && (
-          <div className="empty-state compact">
-            <h3>No support relationships yet</h3>
-            <p>Add an existing ReMind account when the patient is ready to share access.</p>
-          </div>
+        {capabilities.loading && <p className="muted">Checking relationship permissions...</p>}
+        {!capabilities.loading && !canViewRelationships && (
+          <p className="muted">Your current permission does not include viewing patient relationships.</p>
         )}
-        {relationships.data && (
-          <div className="relationship-list">
-            {relationships.data.items.map((relationship) => (
-              <RelationshipRow
-                key={relationship.id}
-                relationship={relationship}
-                canEdit={canEdit}
-                onRevoked={() => relationships.reload()}
-              />
-            ))}
-          </div>
-        )}
+        {canViewRelationships && <RelationshipsSection canManage={canManageRelationships} />}
       </div>
     </section>
   )
@@ -246,7 +232,7 @@ function ProfileForm({
         </div>
       </fieldset>
 
-      {!canEdit && <p className="muted">Your current role and consent allow viewing this profile, but not changing it.</p>}
+      {!canEdit && <p className="muted" role="status">This profile is read-only under the current consent permissions.</p>}
       {error && <p className="error" role="alert">{error}</p>}
       {canEdit && (
         <button className="btn primary" type="submit" disabled={busy}>
@@ -254,6 +240,37 @@ function ProfileForm({
         </button>
       )}
     </form>
+  )
+}
+
+function RelationshipsSection({ canManage }: { canManage: boolean }) {
+  const { selectedPatientId } = useAuth()
+  const relationships = useApiData(() => api.relationships(), [selectedPatientId])
+
+  return (
+    <>
+      {canManage && <RelationshipForm onAdded={() => relationships.reload()} />}
+      {relationships.loading && <p className="muted">Loading relationships...</p>}
+      {relationships.error && <p className="error" role="alert">{relationships.error}</p>}
+      {relationships.data && relationships.data.items.length === 0 && (
+        <div className="empty-state compact">
+          <h3>No support relationships yet</h3>
+          <p>Add an existing ReMind account when the patient is ready to share access.</p>
+        </div>
+      )}
+      {relationships.data && (
+        <div className="relationship-list">
+          {relationships.data.items.map((relationship) => (
+            <RelationshipRow
+              key={relationship.id}
+              relationship={relationship}
+              canEdit={canManage}
+              onRevoked={() => relationships.reload()}
+            />
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 

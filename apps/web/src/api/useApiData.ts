@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 interface ApiDataState<T> {
   data: T | null
@@ -32,7 +32,7 @@ export function useApiData<T>(load: () => Promise<T>, deps: unknown[] = []): Api
     }
   }, [...deps, tick])
 
-  const reload = () => setTick((t) => t + 1)
+  const reload = useCallback(() => setTick((t) => t + 1), [])
 
   return { data, loading, error, reload }
 }

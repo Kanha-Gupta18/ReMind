@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.constants import CognitionLevel, PatientProfileStatus, Role, SafetyLevel
+from app.models.constants import ConsentAction, CognitionLevel, PatientProfileStatus, Role, SafetyLevel
 from app.schemas.consent import ConsentDirectiveCreate, ConsentDirectiveOut
 
 
@@ -70,6 +70,10 @@ class PatientOnboardingRequest(BaseModel):
 class PatientOnboardingOut(BaseModel):
     profile: PatientProfileOut
     consent: ConsentDirectiveOut
+
+
+class PatientCapabilitiesOut(BaseModel):
+    actions: list[ConsentAction]
 
 
 class RelationshipCreate(BaseModel):

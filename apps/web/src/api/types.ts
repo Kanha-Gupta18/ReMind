@@ -111,6 +111,10 @@ export interface AvailablePatient {
   preferred_name: string
 }
 
+export interface PatientCapabilities {
+  actions: ConsentAction[]
+}
+
 export interface LoginResponse {
   access_token: string
   refresh_token: string

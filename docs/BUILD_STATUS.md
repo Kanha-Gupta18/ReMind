@@ -7,7 +7,7 @@ implementation status separately from planned functionality.
 | --- | --- | --- |
 | 1 | Development baseline and test reliability | Complete: fresh installs, web build, migrations, schema drift check, 98 API tests |
 | 2 | Immediate access and patient-delivery flaws | Complete: patient delivery is fail-closed across content routes; 121 API tests |
-| 3 | Accounts, patient profiles, and consent | Complete: revocable relationships, server-backed sessions, onboarding, profiles, and enforced versioned consent; 134 API tests |
+| 3 | Accounts, patient profiles, and consent | Complete: revocable relationships, server-backed sessions, onboarding, profiles, and enforced versioned consent; 135 API tests |
 | 4 | Canonical memory data and revisions | Planned |
 | 5 | Corrections, deletion, and export | Planned |
 | 6 | Trusted uploads and processing jobs | Planned |
@@ -97,7 +97,7 @@ Branch: `codex/03-accounts-consent`.
   is withdrawn.
 - The web app now refreshes sessions safely, supports explicit patient selection,
   and provides onboarding, profile, relationship, and structured consent screens.
-- All 134 API tests passed. TypeScript checking, the Vite production build,
+- All 135 API tests passed. TypeScript checking, the Vite production build,
   `git diff --check`, and the UI mechanical-quality detector passed.
 
 Canonical revision selection remains Section 4. Correction and deletion
