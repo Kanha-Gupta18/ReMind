@@ -1,9 +1,11 @@
 # ReMind
 
+[![CI](https://github.com/Kanha-Gupta18/ReMind/actions/workflows/ci.yml/badge.svg)](https://github.com/Kanha-Gupta18/ReMind/actions/workflows/ci.yml)
+
 ReMind is an evidence-grounded memory-support platform for people living with dementia, Alzheimer's disease, acquired brain injury, or other forms of memory impairment. It helps families preserve autobiographical context and present verified memories through a calm timeline and conversational interface.
 
 > [!IMPORTANT]
-> ReMind is an early-stage prototype. It is not a diagnostic product, a substitute for medical care, or ready for use with real patient data. Safety, consent enforcement, deletion propagation, and production security work remain in progress.
+> ReMind is an early-stage prototype. It is not a diagnostic product, a substitute for medical care, or ready for use with real patient data. Deletion propagation, production security, and clinical validation remain in progress.
 
 ## Product principles
 
@@ -20,13 +22,16 @@ The core invariant is that no patient-facing autobiographical claim should exist
 
 The current prototype includes:
 
-- Role-aware authentication for patients, family contributors/reviewers, caregivers, guardians, clinicians, and administrators.
+- Server-backed login sessions and revocable patient relationships for patients,
+  family contributors/reviewers, caregivers, guardians, and clinicians.
 - Source upload, metadata capture, checksums, local development storage, and simulated processing pipelines.
 - Memory drafts, review states, revisions, evidence, confidence scoring, and sensitivity flags.
 - Patient timeline views grouped chronologically, by decade, and by place.
 - People, face-match review, and an evidence-bearing knowledge graph.
 - Grounded conversation over approved memories with basic medical and sensitive-topic guardrails.
-- Consent directives, third-party consent records, safety events, notifications, engagement summaries, and audit records.
+- Versioned consent policies enforced across patient-data routes, delegated
+  guardian authority, third-party consent records, safety events, notifications,
+  engagement summaries, and audit records.
 - A role-aware React web application for the implemented workflows.
 
 AI extraction is currently simulated. Real OCR, speech, vision, embedding, and model-provider integrations have not been connected.
@@ -38,7 +43,7 @@ AI extraction is currently simulated. Real OCR, speech, vision, embedding, and m
 | Web | React 19, TypeScript, React Router, Vite |
 | API | Python, FastAPI, Pydantic |
 | Data | PostgreSQL, SQLAlchemy, Alembic |
-| Auth | JWT access/refresh tokens, bcrypt |
+| Auth | Server-backed JWT access/refresh sessions, refresh rotation, bcrypt |
 | Tests | Pytest, FastAPI TestClient |
 
 ## Repository layout
@@ -58,7 +63,7 @@ ReMind/
 
 ### Requirements
 
-- Node.js 20 or newer
+- Node.js 22.12 or newer (CI uses Node.js 22)
 - Python 3.11 or newer
 - PostgreSQL 15 or newer
 
@@ -86,7 +91,7 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 alembic upgrade head
 python scripts/seed_user.py patient@example.com "Pat Patient" patient
-uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload
 ```
 
 Review `.env` before starting the service. Never use the example JWT secret or database credentials in a deployed environment.
@@ -106,7 +111,11 @@ The web app is served at `http://localhost:3000` and expects the API at `http://
 
 ## Tests
 
-Backend tests require the dedicated `remind_test` PostgreSQL database:
+Backend tests require a dedicated PostgreSQL database whose name ends in `_test`.
+Override `TEST_DATABASE_URL` to select it. Each run creates a unique schema,
+applies Alembic migrations, checks model/schema consistency, and removes only
+that schema afterward. Uploaded test files always use a newly allocated temporary
+directory, even when `STORAGE_DIR` is configured for the application.
 
 ```powershell
 cd services/api
@@ -120,13 +129,21 @@ cd apps/web
 npm run build
 ```
 
-The current backend suite covers authentication, role access, consent records, source processing, memory review, timeline delivery, graph operations, conversation safety, notifications, and administration.
+The current backend suite covers authentication sessions, relationship and consent
+enforcement, patient profiles and onboarding, source processing, memory review,
+timeline delivery, graph operations, conversation safety, notifications, and
+administration.
 
 ## Current limitations
 
-Before controlled testing, the project needs stronger enforcement around patient-visible review state, confirmed identities, consent directives, source-file access, revision semantics, and deletion propagation. It also needs encrypted object storage, background jobs, real multimodal processing, production authentication, observability, and patient-grade accessibility.
+Before controlled testing, the project still needs correct revision promotion,
+deletion propagation, and authorized export. It also needs encrypted object
+storage, background jobs, real multimodal processing, production identity controls
+such as MFA, observability, and patient-grade accessibility.
 
-See [Product](docs/PRODUCT.md), [Architecture](docs/ARCHITECTURE.md), [Roadmap](docs/ROADMAP.md), and [Security](SECURITY.md) for more detail.
+See [Build plan](docs/BUILD_PLAN.md), [Build status](docs/BUILD_STATUS.md),
+[Product](docs/PRODUCT.md), [Architecture](docs/ARCHITECTURE.md),
+[Roadmap](docs/ROADMAP.md), and [Security](SECURITY.md) for more detail.
 
 ## Contributing
 
@@ -134,4 +151,8 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Safety-sensitiv
 
 ## License
 
-No open-source license has been selected yet. Until a license is added, all rights are reserved by the repository owner.
+This project is licensed under the [MIT License](LICENSE).
+
+## Live Demo
+
+Deployment in progress — link will be added on first Railway/Render deploy.

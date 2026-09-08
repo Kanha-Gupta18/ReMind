@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.database import SessionLocal
 from app.core.security import hash_password
-from app.models.constants import Role
-from app.models.user import User
+from app.models.constants import AccessGrantStatus, Role
+from app.models.user import PatientAccessGrant, User
 
 DEFAULT_PASSWORD = "password123"
 
@@ -51,9 +51,16 @@ def main() -> None:
             password_hash=hash_password(args.password),
             full_name=args.full_name,
             role=args.role,
-            patient_id=patient_id,
         )
         db.add(user)
+        db.flush()
+        if patient_id:
+            db.add(PatientAccessGrant(
+                user_id=user.id,
+                patient_id=patient_id,
+                relationship=args.role.replace("_", " "),
+                status=AccessGrantStatus.ACTIVE.value,
+            ))
         db.commit()
         print(f"created {args.role} {args.email} (id={user.id})")
 

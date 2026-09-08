@@ -2,24 +2,38 @@
 
 ## Milestone 0 — Trust boundary hardening
 
-- Enforce `APPROVED` state on every patient-facing memory endpoint.
-- Limit patient identity output to family-confirmed face and person records.
-- Filter conversation and graph traversal to confirmed, non-disputed facts.
-- Remove caller-controlled server file paths and constrain all source reads to managed storage.
-- Turn consent directives into authorization policies across upload, access, retrieval, and delivery.
+- [x] Enforce `APPROVED` state on every patient-facing memory endpoint.
+- [x] Limit patient identity output to family-confirmed face and person records.
+- [x] Filter patient conversation and graph-derived traversal to confirmed,
+  non-disputed facts.
+- [x] Remove caller-controlled server file paths and constrain all source reads to managed storage.
+- [x] Turn consent directives into authorization policies across upload, access, retrieval, and delivery.
 - Correct memory revision promotion and rejection behavior.
 - Implement source deletion propagation and regression tests.
 - Add adversarial tests for the product's core invariant.
 
 ## Milestone 1 — Trusted family memory vault
 
-- Patient profile and onboarding workflows.
+- [x] Patient profile and onboarding workflows.
+- [x] Revocable multi-patient relationships and server-backed login sessions.
 - Secure image upload and manual people/event tagging.
 - Source provenance and family review workspace.
 - Accessible patient home, photo-led memory cards, timeline, and narration.
 - Versioned corrections, sensitivity controls, export, and deletion.
 - Grounded conversation over approved memories only.
 - Reproducible local environment and deployment baseline.
+
+## Product-wide experience and visual system
+
+- Replace prototype styling after the family workflow is functionally complete.
+- Establish shared typography, color, spacing, navigation, form, feedback, and
+  content-state patterns across role experiences.
+- Add responsive layouts and purposeful interaction feedback with reduced-motion
+  behavior.
+- Visually verify family, patient, caregiver, clinician, and administrator paths
+  at representative desktop and mobile sizes.
+- Keep patient-specific accessibility and cognitive-safety validation as its own
+  following section.
 
 ## Milestone 2 — AI-assisted reconstruction
 

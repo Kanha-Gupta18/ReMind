@@ -1,8 +1,8 @@
 """Safety routes: events, acknowledgment, caregiver stop, level (spec §16, §18.5).
 
 RBAC:
-  - caregiver/clinician/guardian/admin  view and acknowledge events
-  - caregiver/admin                     issue caregiver stop
+  - caregiver/clinician/guardian  view consented events
+  - caregiver                      issue a consented safety stop
 """
 
 from typing import Annotated
@@ -10,9 +10,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_patient_scope, require_roles
+from app.api.deps import get_current_user, get_patient_scope, require_consent_action, require_roles
 from app.core.database import get_db
-from app.models.constants import Role
+from app.models.constants import ConsentAction, Role
 from app.models.conversation import ConversationSession, SafetyEvent
 from app.models.user import User
 from app.services import audit_service, safety_service
@@ -20,7 +20,7 @@ from app.services import audit_service, safety_service
 router = APIRouter(prefix="/safety", tags=["safety"])
 
 _EVENT_ROLES = [Role.CAREGIVER.value, Role.CLINICIAN.value,
-                Role.GUARDIAN.value, Role.ADMINISTRATOR.value]
+                Role.GUARDIAN.value]
 
 
 def _resolve_scope(scope: str | None, patient_id: str | None = None) -> str:
@@ -44,6 +44,7 @@ def list_events(
     unacknowledged_only: bool = False,
 ):
     pid = _resolve_scope(scope, patient_id)
+    require_consent_action(db, current, pid, ConsentAction.SAFETY_VIEW)
     events = safety_service.list_patient_events(db, pid, unacknowledged_only=unacknowledged_only)
     return {"items": [
         {"id": e.id, "event_type": e.event_type, "severity": e.severity,
@@ -67,6 +68,7 @@ def acknowledge_event(
         raise HTTPException(status_code=404, detail="Event not found")
     if scope is not None and event.patient_id != scope:
         raise HTTPException(status_code=403, detail="Not your patient")
+    require_consent_action(db, current, event.patient_id, ConsentAction.SAFETY_MANAGE)
     safety_service.acknowledge_event(db, event_id, current.id)
     audit_service.log_action(db, current.id, "acknowledged", "safety_event", event_id)
     db.commit()
@@ -77,7 +79,7 @@ def acknowledge_event(
 def caregiver_stop(
     session_id: str,
     db: Annotated[Session, Depends(get_db)],
-    current: Annotated[User, Depends(require_roles(Role.CAREGIVER.value, Role.ADMINISTRATOR.value))],
+    current: Annotated[User, Depends(require_roles(Role.CAREGIVER.value))],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     session = db.get(ConversationSession, session_id)
@@ -85,6 +87,7 @@ def caregiver_stop(
         raise HTTPException(status_code=404, detail="Session not found")
     if scope is not None and session.patient_id != scope:
         raise HTTPException(status_code=403, detail="Not your patient")
+    require_consent_action(db, current, session.patient_id, ConsentAction.SAFETY_MANAGE)
     event = safety_service.stop_session_for_safety(
         db, session, context={"by": current.id}, action="session_stopped_by_caregiver"
     )
@@ -95,8 +98,10 @@ def caregiver_stop(
 @router.get("/level")
 def safety_level(
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(get_current_user)],
     scope: Annotated[str | None, Depends(get_patient_scope)],
     patient_id: str | None = None,
 ):
     pid = _resolve_scope(scope, patient_id)
+    require_consent_action(db, current, pid, ConsentAction.SAFETY_VIEW)
     return {"patient_id": pid, "safety_level": safety_service.resolve_safety_level(db, pid)}

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     token_expire_minutes: int = 30
     refresh_token_expire_minutes: int = 10080  # 7 days
+    session_idle_minutes: int = 30
 
     # httpOnly cookie support (optional; the primary path is Authorization: Bearer)
     cookie_name: str = "remind_token"

@@ -23,8 +23,10 @@ The API is currently a modular monolith. This keeps the prototype simple while p
 
 ## Main domains
 
-- **Identity:** users, roles, patient profiles, and patient scope.
-- **Consent:** versioned directives and third-party consent records.
+- **Identity:** users, server-backed login sessions, patient profiles, and
+  revocable patient relationship grants.
+- **Consent:** immutable directive versions, typed permission policies, delegated
+  guardian authority, and third-party consent records.
 - **Evidence:** sources, extracted facts, checksums, and provenance.
 - **Memory:** memory cards, review lifecycle, revisions, and confidence.
 - **Knowledge:** people, face matches, graph nodes, edges, and edge evidence.
@@ -59,6 +61,9 @@ Production evolution is expected to add:
 
 - Every patient-specific claim must reference evidence.
 - Review state, consent, visibility, deletion, and sensitivity are authorization inputs, not UI-only attributes.
+- Every non-patient request for patient data requires an active relationship grant
+  and a currently permitted consent action. Administrators are operational actors,
+  not patient-content superusers.
 - Corrections create new revisions; approved history is never overwritten invisibly.
 - Deleting a source invalidates every derivative across evidence, graph, retrieval, and memory layers.
 - Model upgrades create new candidates and never silently rewrite approved memories.

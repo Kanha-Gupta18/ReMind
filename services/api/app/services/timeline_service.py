@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.models.clinical import EngagementLog
 from app.models.constants import MemoryStatus
 from app.models.memory import MemoryCard
-from app.services import safety_service
+from app.services import consent_service, safety_service
 
 
 def _releasable(
@@ -24,6 +24,12 @@ def _releasable(
     viewer_role: str | None,
     caregiver_present: bool = False,
 ) -> bool:
+    if not consent_service.content_categories_are_allowed(
+        db,
+        patient_id,
+        memory.sensitivity_flags,
+    ):
+        return False
     safety_level = safety_service.resolve_safety_level(db, patient_id)
     return safety_service.evaluate_release(
         memory,

@@ -24,7 +24,7 @@ ROWS = [
     ("patient", "post", "/sources", {"file_name": "a.jpg", "file_type": "photo"}, 403),
     ("caregiver", "post", "/sources", {"file_name": "a.jpg", "file_type": "photo"}, 403),
     ("clinician", "post", "/sources", {"file_name": "a.jpg", "file_type": "photo"}, 403),
-    ("admin", "post", "/sources", {"file_name": "a.jpg", "file_type": "photo"}, 400),
+    ("admin", "post", "/sources", {"file_name": "a.jpg", "file_type": "photo"}, 403),
     # --- conversations ---
     ("patient", "post", "/conversations/sessions", {"session_type": "chat"}, 201),
     ("contributor", "post", "/conversations/sessions", {"session_type": "chat"}, 403),

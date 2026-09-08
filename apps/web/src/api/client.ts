@@ -1,6 +1,7 @@
 import type {
   AdminStats,
   AdminUser,
+  AvailablePatient,
   ChatReply,
   ConsentDirective,
   ConsentDirectiveCreate,
@@ -24,6 +25,11 @@ import type {
   Person,
   PersonCreate,
   PersonUpdate,
+  PatientProfile,
+  PatientCapabilities,
+  PatientOnboardingRequest,
+  PatientProfileUpdate,
+  Relationship,
   RelationItem,
   Revision,
   SafetyEvent,
@@ -50,17 +56,73 @@ export class ApiError extends Error {
 }
 
 let accessToken: string | null = null
+let refreshToken: string | null = null
+let patientScope: string | null = null
+let refreshInFlight: Promise<boolean> | null = null
 
-export function setAccessToken(token: string | null) {
-  accessToken = token
+export const ACCESS_KEY = 'remind.access_token'
+export const REFRESH_KEY = 'remind.refresh_token'
+export const PATIENT_PROFILE_UPDATED_EVENT = 'remind:patient-profile-updated'
+
+export function setSessionTokens(access: string | null, refresh: string | null) {
+  accessToken = access
+  refreshToken = refresh
+  if (access && refresh) {
+    localStorage.setItem(ACCESS_KEY, access)
+    localStorage.setItem(REFRESH_KEY, refresh)
+  } else {
+    localStorage.removeItem(ACCESS_KEY)
+    localStorage.removeItem(REFRESH_KEY)
+  }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export function setPatientScope(patientId: string | null) {
+  patientScope = patientId
+}
+
+async function refreshSession(): Promise<boolean> {
+  if (!refreshToken) return false
+  if (!refreshInFlight) {
+    refreshInFlight = fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return false
+        const body = (await res.json()) as TokenResponse
+        setSessionTokens(body.access_token, body.refresh_token)
+        return true
+      })
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null
+      })
+  }
+  const refreshed = await refreshInFlight
+  if (!refreshed) {
+    setSessionTokens(null, null)
+    window.dispatchEvent(new Event('remind:session-expired'))
+  }
+  return refreshed
+}
+
+async function request<T>(path: string, init: RequestInit = {}, mayRefresh = true): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
+  if (patientScope) headers.set('X-Patient-ID', patientScope)
 
   const res = await fetch(`${API_URL}${path}`, { ...init, headers })
+  if (
+    res.status === 401 &&
+    mayRefresh &&
+    path !== '/auth/login' &&
+    path !== '/auth/refresh' &&
+    await refreshSession()
+  ) {
+    return request<T>(path, init, false)
+  }
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -79,10 +141,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>
 }
 
-async function requestBlob(path: string, init: RequestInit = {}): Promise<Blob> {
+async function requestBlob(path: string, init: RequestInit = {}, mayRefresh = true): Promise<Blob> {
   const headers = new Headers(init.headers)
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
+  if (patientScope) headers.set('X-Patient-ID', patientScope)
   const res = await fetch(`${API_URL}${path}`, { ...init, headers })
+  if (res.status === 401 && mayRefresh && await refreshSession()) {
+    return requestBlob(path, init, false)
+  }
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -109,6 +175,30 @@ export const api = {
     }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   me: () => request<User>('/auth/me'),
+  availablePatients: () =>
+    request<{ items: AvailablePatient[]; count: number }>('/patients/available'),
+  patientCapabilities: () => request<PatientCapabilities>('/patients/capabilities'),
+
+  patientProfile: () => request<PatientProfile>('/patients/profile'),
+  completeOnboarding: (payload: PatientOnboardingRequest) =>
+    request<{ profile: PatientProfile; consent: ConsentDirective }>('/patients/onboarding', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updatePatientProfile: (patch: PatientProfileUpdate) =>
+    request<PatientProfile>('/patients/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  relationships: () =>
+    request<{ items: Relationship[]; count: number }>('/patients/relationships'),
+  grantRelationship: (userEmail: string, relationship: string) =>
+    request<Relationship>('/patients/relationships', {
+      method: 'POST',
+      body: JSON.stringify({ user_email: userEmail, relationship }),
+    }),
+  revokeRelationship: (id: string) =>
+    request<{ ok: boolean }>(`/patients/relationships/${id}`, { method: 'DELETE' }),
 
   timeline: (limit?: number) =>
     request<{ items: MemoryCard[]; count: number }>(`/timeline${limit ? `?limit=${limit}` : ''}`),

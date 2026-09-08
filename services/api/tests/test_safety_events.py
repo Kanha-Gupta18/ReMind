@@ -46,10 +46,10 @@ def test_stop_session_rbac(client, tokens):
     assert r.status_code == 200 and "safety_event" in r.json()
 
 
-def test_admin_can_stop_any_session(client, tokens):
+def test_admin_cannot_stop_patient_session(client, tokens):
     sess = _start_session(client, tokens)
     r = client.post(f"/safety/sessions/{sess}/stop", headers=auth(tokens["admin"]))
-    assert r.status_code == 200 and "safety_event" in r.json()
+    assert r.status_code == 403
 
 
 def test_list_events_requires_support_role(client, tokens):

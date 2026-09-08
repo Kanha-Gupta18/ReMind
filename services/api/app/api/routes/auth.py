@@ -8,11 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
-from app.models.user import User
+from app.models.user import AuthSession, User
 from app.schemas.auth import LoginRequest, LoginResponse, RefreshRequest, TokenResponse
 from app.schemas.user import UserOut
 from app.services.audit_service import log_action
-from app.services.auth_service import authenticate_user, issue_tokens, refresh_access
+from app.services.auth_service import authenticate_user, issue_tokens, refresh_access, revoke_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -23,7 +23,7 @@ def login(
     db: Annotated[Session, Depends(get_db)],
 ):
     user = authenticate_user(db, body.email, body.password)
-    result = issue_tokens(user)
+    result = issue_tokens(db, user)
     log_action(db, user.id, "auth.login", "user", user.id, details={"email": user.email})
     db.commit()
     return result
@@ -42,6 +42,9 @@ def logout(
     current: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ):
+    auth_session = db.get(AuthSession, getattr(current, "_auth_session_id", None))
+    if auth_session is not None:
+        revoke_session(auth_session, "logout")
     log_action(db, current.id, "auth.logout", "user", current.id)
     db.commit()
     return {"ok": True}

@@ -1,7 +1,7 @@
 """Shared fixtures for the API test suite.
 
 Tests run against a dedicated PostgreSQL database (`remind_test`) so the
-development data is never touched. The schema is dropped and recreated
+development data is never touched. A unique schema is migrated and removed
 once per pytest session, and each test wipes the rows its own users own,
 so tests stay independent.
 
@@ -14,15 +14,12 @@ The test DB is chosen by TEST_DATABASE_URL (defaults to the local
 
 import os
 import shutil
-import tempfile
+from tests import runtime
 
 # Point the app at the dedicated test database BEFORE any app module is
 # imported, because `app.core.config.Settings` reads DATABASE_URL once at
 # import time (real env vars win over the .env file).
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL",
-    "postgresql+psycopg://remind:remind_dev@localhost:5432/remind_test",
-)
+TEST_DATABASE_URL = runtime.SCOPED_DATABASE_URL
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 # Uploaded files must land in a throwaway temp directory, never the dev
@@ -30,11 +27,12 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 # conftest.py is imported twice (as a pytest plugin and as `tests.conftest`
 # via `from tests.conftest import ...`), so reuse the env value if present
 # rather than creating two different temp dirs.
-TEST_STORAGE_DIR = os.environ.get("STORAGE_DIR") or tempfile.mkdtemp(prefix="remind_test_storage_")
+TEST_STORAGE_DIR = runtime.STORAGE_DIR
 os.environ["STORAGE_DIR"] = TEST_STORAGE_DIR
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.database import Base, SessionLocal, engine
@@ -42,31 +40,79 @@ from app.core.security import hash_password
 from app.main import app
 from app.models.base import new_id
 from app.models.clinical import EngagementLog, Notification
-from app.models.constants import Role, SafetyLevel
+from app.models.constants import ConsentAction, Role, SafetyLevel, SourceType
 from app.models.consent import ConsentDirective
 from app.models.conversation import ConversationMessage, ConversationSession, SafetyEvent
 from app.models.graph import GraphEdge, GraphNode
 from app.models.memory import Evidence, MemoryCard, MemoryRevision, Source
 from app.models.people import FaceMatch, Person
-from app.models.user import AuditLog, PatientProfile, ThirdPartyConsent, User
+from app.models.user import AuthSession, AuditLog, PatientAccessGrant, PatientProfile, ThirdPartyConsent, User
 
 PASSWORD = "testpass123"
 TEST_DOMAIN = "@remind.dev"
 
+DEFAULT_ROLE_ACTIONS = {
+    Role.FAMILY_CONTRIBUTOR.value: [
+        ConsentAction.CONSENT_VIEW.value,
+        ConsentAction.SOURCES_VIEW.value,
+        ConsentAction.SOURCES_UPLOAD.value,
+        ConsentAction.SOURCES_PROCESS.value,
+        ConsentAction.SOURCES_DELETE.value,
+        ConsentAction.MEMORIES_VIEW.value,
+        ConsentAction.MEMORIES_CREATE.value,
+        ConsentAction.PEOPLE_VIEW.value,
+        ConsentAction.PEOPLE_CREATE.value,
+        ConsentAction.GRAPH_VIEW.value,
+        ConsentAction.GRAPH_EDIT.value,
+    ],
+    Role.FAMILY_REVIEWER.value: [action.value for action in ConsentAction],
+    Role.CAREGIVER.value: [
+        ConsentAction.CONSENT_VIEW.value,
+        ConsentAction.SOURCES_VIEW.value,
+        ConsentAction.MEMORIES_VIEW.value,
+        ConsentAction.PEOPLE_VIEW.value,
+        ConsentAction.GRAPH_VIEW.value,
+        ConsentAction.CONVERSATIONS_VIEW.value,
+        ConsentAction.SAFETY_VIEW.value,
+        ConsentAction.SAFETY_MANAGE.value,
+        ConsentAction.ENGAGEMENT_VIEW.value,
+    ],
+    Role.GUARDIAN.value: [action.value for action in ConsentAction],
+    Role.CLINICIAN.value: [
+        ConsentAction.PROFILE_VIEW.value,
+        ConsentAction.CONSENT_VIEW.value,
+        ConsentAction.MEMORIES_VIEW.value,
+        ConsentAction.PEOPLE_VIEW.value,
+        ConsentAction.GRAPH_VIEW.value,
+        ConsentAction.CONVERSATIONS_VIEW.value,
+        ConsentAction.SAFETY_VIEW.value,
+        ConsentAction.ENGAGEMENT_VIEW.value,
+    ],
+}
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _test_db_schema():
-    """Recreate the test schema once per session; clean up afterwards."""
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    yield
-    # A request session can be left open by a dead TestClient thread; close
-    # every tracked session first so their transactions release the row/table
-    # locks that would otherwise block the final DROP TABLE forever.
+    """Migrate an isolated schema, then remove only resources this run owns."""
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import create_engine, text
     from sqlalchemy.orm import close_all_sessions
-    close_all_sessions()
-    Base.metadata.drop_all(bind=engine)
-    shutil.rmtree(TEST_STORAGE_DIR, ignore_errors=True)
+
+    control = create_engine(runtime.DATABASE_URL)
+    try:
+        with control.begin() as connection:
+            connection.execute(text(f'CREATE SCHEMA "{runtime.SCHEMA}"'))
+        command.upgrade(Config("alembic.ini"), "head")
+        command.check(Config("alembic.ini"))
+        yield
+    finally:
+        close_all_sessions()
+        engine.dispose()
+        with control.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA IF EXISTS "{runtime.SCHEMA}" CASCADE'))
+        control.dispose()
+        shutil.rmtree(runtime.STORAGE_DIR)
 
 
 def wipe(db: Session, user_ids: list[str]) -> None:
@@ -84,7 +130,10 @@ def wipe(db: Session, user_ids: list[str]) -> None:
         synchronize_session=False)
     db.query(ConsentDirective).filter(ConsentDirective.patient_id.in_(user_ids)).delete(
         synchronize_session=False)
-    db.query(Notification).filter(Notification.user_id.in_(user_ids)).delete(
+    db.query(Notification).filter(or_(
+        Notification.user_id.in_(user_ids),
+        Notification.patient_id.in_(user_ids),
+    )).delete(
         synchronize_session=False)
     memory_ids = db.query(MemoryCard.id).filter(MemoryCard.patient_id.in_(user_ids))
     db.query(MemoryRevision).filter(MemoryRevision.memory_id.in_(memory_ids)).delete(
@@ -102,8 +151,13 @@ def wipe(db: Session, user_ids: list[str]) -> None:
 
 def delete_users(db: Session, user_ids: list[str]) -> None:
     """Wipe resources, detach family links, then drop the users themselves."""
-    db.query(User).filter(User.patient_id.in_(user_ids)).update(
-        {"patient_id": None}, synchronize_session=False)
+    db.query(AuthSession).filter(AuthSession.user_id.in_(user_ids)).delete(
+        synchronize_session=False)
+    db.query(PatientAccessGrant).filter(or_(
+        PatientAccessGrant.user_id.in_(user_ids),
+        PatientAccessGrant.patient_id.in_(user_ids),
+        PatientAccessGrant.granted_by.in_(user_ids),
+    )).delete(synchronize_session=False)
     wipe(db, user_ids)
     db.query(PatientProfile).filter(PatientProfile.user_id.in_(user_ids)).delete(
         synchronize_session=False)
@@ -113,9 +167,16 @@ def delete_users(db: Session, user_ids: list[str]) -> None:
 
 def _make_user(db: Session, email: str, role: str, patient_id: str | None = None) -> User:
     user = User(email=email, password_hash=hash_password(PASSWORD),
-                full_name=role, role=role, patient_id=patient_id)
+                full_name=role, role=role)
     db.add(user)
     db.flush()
+    if patient_id:
+        db.add(PatientAccessGrant(
+            user_id=user.id,
+            patient_id=patient_id,
+            relationship=role,
+        ))
+        db.flush()
     return user
 
 
@@ -141,8 +202,10 @@ def users(_test_db_schema) -> dict[str, User]:
     guardian = _make_user(db, em("guardian"), Role.GUARDIAN.value, patient.id)
     admin = _make_user(db, em("admin"), Role.ADMINISTRATOR.value)
     contributor2 = _make_user(db, em("contributor2"), Role.FAMILY_CONTRIBUTOR.value, patient2.id)
-    db.add(PatientProfile(user_id=patient.id, safety_level=SafetyLevel.NORMAL.value))
-    db.add(PatientProfile(user_id=patient2.id, safety_level=SafetyLevel.NORMAL.value))
+    db.add(PatientProfile(user_id=patient.id, preferred_name=patient.full_name,
+                          safety_level=SafetyLevel.NORMAL.value))
+    db.add(PatientProfile(user_id=patient2.id, preferred_name=patient2.full_name,
+                          safety_level=SafetyLevel.NORMAL.value))
     db.commit()
 
     result = {
@@ -160,7 +223,7 @@ def users(_test_db_schema) -> dict[str, User]:
 
 @pytest.fixture(scope="session")
 def tokens(client: TestClient, users: dict[str, User]) -> dict[str, str]:
-    """Access token per role, minted once per session (JWTs are stateless)."""
+    """Access token per role, minted once per server-backed session."""
     out = {}
     for name, user in users.items():
         r = client.post("/auth/login", json={"email": user.email, "password": PASSWORD})
@@ -174,6 +237,42 @@ def _clean_slate(users: dict[str, User]):
     """Wipe all test-owned resources before each test."""
     db = SessionLocal()
     wipe(db, [u.id for u in users.values()])
+    for patient_key, guardian_key in (("patient", "guardian"), ("patient2", None)):
+        patient = users[patient_key]
+        guardian = users[guardian_key] if guardian_key else None
+        profile = db.query(PatientProfile).filter(PatientProfile.user_id == patient.id).first()
+        profile.preferred_name = patient.full_name
+        profile.preferred_language = "en"
+        profile.accessibility_profile = {}
+        profile.date_of_birth = None
+        profile.diagnosis = None
+        profile.diagnosis_date = None
+        profile.cognition_level = None
+        profile.safety_level = SafetyLevel.NORMAL.value
+        profile.status = "active"
+        guardian_actions = DEFAULT_ROLE_ACTIONS[Role.GUARDIAN.value] if guardian else []
+        db.add(ConsentDirective(
+            patient_id=patient.id,
+            version=1,
+            permissions={
+                "allowed_data_sources": [source.value for source in SourceType],
+                "role_actions": DEFAULT_ROLE_ACTIONS,
+                "third_party_visibility": "family_reviewed",
+            },
+            restrictions={
+                "prohibited_data_categories": [],
+                "blocked_person_ids": [],
+            },
+            guardian_rules={
+                "guardian_id": guardian.id if guardian else None,
+                "authority": "shared" if guardian else "none",
+                "allowed_actions": guardian_actions,
+            },
+            signer=patient.full_name,
+            signed_by_user_id=patient.id,
+            post_death_policy={"mode": "keep_private"},
+        ))
+    db.commit()
     db.close()
     yield
 

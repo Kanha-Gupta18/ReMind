@@ -7,7 +7,7 @@ RBAC (spec §23):
   - guardian        approve/submit/edit
   - caregiver       restrict, read evidence/revisions (support)
   - clinician       read evidence/revisions (support)
-  - administrator   everything
+  - administrator   no patient-content access
 """
 
 from typing import Annotated
@@ -15,11 +15,19 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_patient_scope, require_roles
+from app.api.deps import (
+    get_current_user,
+    get_patient_scope,
+    require_consent_action,
+    require_roles,
+)
 from app.core.database import get_db
 from app.models.clinical import EngagementLog
 from app.models.constants import (
     EngagementAction,
+    ConsentAction,
+    DeletionStatus,
+    EvidenceReviewStatus,
     MemoryStatus,
     Role,
     Visibility,
@@ -27,13 +35,20 @@ from app.models.constants import (
 from app.models.memory import MemoryCard
 from app.models.user import User
 from app.schemas.memory import EngageAction, MemoryCreate, MemoryEdit, ReviewAction
-from app.services import audit_service, evidence_service, memory_service, safety_service
+from app.services import (
+    audit_service,
+    consent_service,
+    evidence_service,
+    memory_service,
+    patient_delivery_service,
+    safety_service,
+)
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 
-_REVIEW_ROLES = [Role.FAMILY_REVIEWER.value, Role.GUARDIAN.value, Role.ADMINISTRATOR.value]
+_REVIEW_ROLES = [Role.FAMILY_REVIEWER.value, Role.GUARDIAN.value]
 _READ_EVERYTHING = [Role.FAMILY_REVIEWER.value, Role.CAREGIVER.value,
-                    Role.GUARDIAN.value, Role.CLINICIAN.value, Role.ADMINISTRATOR.value]
+                    Role.GUARDIAN.value, Role.CLINICIAN.value]
 
 
 def _patient_from_scope(scope: str | None, memory: MemoryCard) -> None:
@@ -42,6 +57,21 @@ def _patient_from_scope(scope: str | None, memory: MemoryCard) -> None:
         return
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                         detail="Access to this memory is not allowed")
+
+
+def _require_memory_action(
+    db: Session,
+    current: User,
+    memory: MemoryCard,
+    action: ConsentAction,
+) -> None:
+    require_consent_action(db, current, memory.patient_id, action)
+    if not consent_service.content_categories_are_allowed(
+        db,
+        memory.patient_id,
+        memory.sensitivity_flags,
+    ):
+        raise HTTPException(status_code=403, detail="Consent prohibits this content category")
 
 
 @router.get("")
@@ -53,11 +83,14 @@ def list_memories(
 ):
     """List memories in the caller's scope. Patients only ever see what
     passes the safety release gate (approved + releasable)."""
+    require_consent_action(db, current, scope, ConsentAction.MEMORIES_VIEW)
     memories = memory_service.list_memories(
         db, scope, status=mem_status, include_deleted=False
     ) if scope else []
     out = []
     for m in memories:
+        if not consent_service.content_categories_are_allowed(db, m.patient_id, m.sensitivity_flags):
+            continue
         if _is_patient_viewer(current, m):
             allowed = safety_service.evaluate_release(
                 m, safety_service.resolve_safety_level(db, m.patient_id)
@@ -80,9 +113,10 @@ def get_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = memory_service.get_memory(db, memory_id)
-    if memory is None:
+    if memory is None or memory.status == MemoryStatus.DELETED.value:
         raise HTTPException(status_code=404, detail="Memory not found")
     _patient_from_scope(scope, memory)
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_VIEW)
 
     if _is_patient_viewer(current, memory):
         result = safety_service.evaluate_release(
@@ -99,13 +133,18 @@ def create_memory(
     db: Annotated[Session, Depends(get_db)],
     current: Annotated[User, Depends(require_roles(
         Role.PATIENT.value, Role.FAMILY_CONTRIBUTOR.value,
-        Role.FAMILY_REVIEWER.value, Role.GUARDIAN.value, Role.ADMINISTRATOR.value,
+        Role.FAMILY_REVIEWER.value, Role.GUARDIAN.value,
     ))],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     patient_id = scope
-    if patient_id is None:
-        raise HTTPException(status_code=403, detail="Administrator must pick a patient")
+    require_consent_action(db, current, patient_id, ConsentAction.MEMORIES_CREATE)
+    if not consent_service.content_categories_are_allowed(
+        db,
+        patient_id,
+        body.sensitivity_flags,
+    ):
+        raise HTTPException(status_code=403, detail="Consent prohibits this content category")
     memory = memory_service.create_memory_card(
         db,
         patient_id=patient_id,
@@ -132,6 +171,7 @@ def submit_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
     memory_service.submit_for_review(db, memory, submitted_by=current.id)
     db.commit()
     return _serialize(db, memory, detail=False)
@@ -145,6 +185,7 @@ def approve_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
     memory_service.approve_memory(db, memory, reviewer=current.id)
     db.commit()
     return _serialize(db, memory, detail=False)
@@ -159,6 +200,7 @@ def reject_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
     memory_service.reject_memory(db, memory, reviewer=current.id, reason=body.reason)
     db.commit()
     return _serialize(db, memory, detail=False)
@@ -173,6 +215,7 @@ def dispute_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
     memory_service.dispute_memory(db, memory, reviewer=current.id, reason=body.reason)
     db.commit()
     return _serialize(db, memory, detail=False)
@@ -185,11 +228,12 @@ def restrict_memory(
     db: Annotated[Session, Depends(get_db)],
     current: Annotated[User, Depends(require_roles(
         Role.CAREGIVER.value, Role.GUARDIAN.value,
-        Role.CLINICIAN.value, Role.ADMINISTRATOR.value,
+        Role.CLINICIAN.value,
     ))],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
+    _require_memory_action(db, current, memory, ConsentAction.SAFETY_MANAGE)
     memory_service.restrict_memory(db, memory, actor=current.id, reason=body.reason)
     db.commit()
     return _serialize(db, memory, detail=False)
@@ -203,6 +247,7 @@ def archive_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
     memory_service.archive_memory(db, memory, actor=current.id)
     db.commit()
     return _serialize(db, memory, detail=False)
@@ -216,6 +261,7 @@ def soft_delete_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_EDIT)
     memory.status = MemoryStatus.DELETED.value
     audit_service.log_action(db, current.id, "deleted", "memory_card", memory.id)
     db.commit()
@@ -231,6 +277,7 @@ def edit_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_EDIT)
     memory_service.edit_memory(
         db, memory, actor=current.id,
         title=body.title, narrative=body.narrative, tags=body.tags, note=body.note,
@@ -243,9 +290,11 @@ def edit_memory(
 def get_revisions(
     memory_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(require_roles(*_READ_EVERYTHING))],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_VIEW)
     revisions = memory_service.revision_history(db, memory.id)
     return {"items": [
         {"revision_number": r.revision_number, "status": r.status,
@@ -259,10 +308,19 @@ def get_revisions(
 def get_evidence(
     memory_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(get_current_user)],
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_VIEW)
+    _require_release(db, memory, current)
     provenance = evidence_service.get_memory_provenance(db, memory.id)
+    if current.role == Role.PATIENT.value:
+        provenance = [p for p in provenance
+                      if p["evidence"].review_status == EvidenceReviewStatus.ACCEPTED.value
+                      and (not p["evidence"].source_id or
+                           (p["source"] and p["source"].patient_id == memory.patient_id
+                            and p["source"].deletion_status == DeletionStatus.ACTIVE.value))]
     return {"items": [
         {"id": p["evidence"].id,
          "claim": p["evidence"].claim,
@@ -284,6 +342,8 @@ def engage(
     memory = memory_service.get_memory(db, memory_id)
     if memory is None or memory.patient_id != current.id:
         raise HTTPException(status_code=403, detail="Not your memory")
+    require_consent_action(db, current, memory.patient_id, ConsentAction.MEMORIES_VIEW)
+    _require_release(db, memory, current)
     log = EngagementLog(
         patient_id=current.id, memory_card_id=memory.id,
         action=body.action, duration_ms=body.duration_ms,
@@ -295,10 +355,15 @@ def engage(
 
 def _get_scoped(db: Session, memory_id: str, scope: str | None) -> MemoryCard:
     memory = memory_service.get_memory(db, memory_id)
-    if memory is None:
+    if memory is None or memory.status == MemoryStatus.DELETED.value:
         raise HTTPException(status_code=404, detail="Memory not found")
     _patient_from_scope(scope, memory)
     return memory
+
+
+def _require_release(db: Session, memory: MemoryCard, current: User) -> None:
+    if current.role == Role.PATIENT.value and not patient_delivery_service.memory_is_visible(db, memory):
+        raise HTTPException(status_code=403, detail="Memory is not available to the patient")
 
 
 def _serialize(db: Session, m: MemoryCard, detail: bool) -> dict:

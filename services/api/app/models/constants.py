@@ -21,6 +21,50 @@ class Role(str, Enum):
     ADMINISTRATOR = "administrator"
 
 
+class AccessGrantStatus(str, Enum):
+    """Lifecycle of an account's relationship with a patient."""
+
+    ACTIVE = "active"
+    REVOKED = "revoked"
+
+
+class PatientProfileStatus(str, Enum):
+    """Operational state of a patient profile."""
+
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    DECEASED = "deceased"
+
+
+class ConsentAction(str, Enum):
+    """Patient-scoped actions that an advance directive can authorize."""
+
+    PROFILE_VIEW = "profile:view"
+    PROFILE_EDIT = "profile:edit"
+    RELATIONSHIPS_VIEW = "relationships:view"
+    RELATIONSHIPS_MANAGE = "relationships:manage"
+    CONSENT_VIEW = "consent:view"
+    CONSENT_MANAGE = "consent:manage"
+    SOURCES_VIEW = "sources:view"
+    SOURCES_UPLOAD = "sources:upload"
+    SOURCES_PROCESS = "sources:process"
+    SOURCES_DELETE = "sources:delete"
+    MEMORIES_VIEW = "memories:view"
+    MEMORIES_CREATE = "memories:create"
+    MEMORIES_EDIT = "memories:edit"
+    MEMORIES_REVIEW = "memories:review"
+    PEOPLE_VIEW = "people:view"
+    PEOPLE_CREATE = "people:create"
+    PEOPLE_VERIFY = "people:verify"
+    GRAPH_VIEW = "graph:view"
+    GRAPH_EDIT = "graph:edit"
+    GRAPH_REVIEW = "graph:review"
+    CONVERSATIONS_VIEW = "conversations:view"
+    SAFETY_VIEW = "safety:view"
+    SAFETY_MANAGE = "safety:manage"
+    ENGAGEMENT_VIEW = "engagement:view"
+
+
 class MemoryStatus(str, Enum):
     """Lifecycle of a memory card (spec §7.3). Nine states."""
 

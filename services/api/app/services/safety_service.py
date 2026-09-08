@@ -35,6 +35,7 @@ from app.models.constants import (
     SafetyEventType,
     SafetyLevel,
     Severity,
+    Visibility,
 )
 from app.models.conversation import ConversationSession, SafetyEvent
 from app.models.memory import MemoryCard
@@ -72,6 +73,13 @@ def evaluate_release(
 
     Returns {allowed, display_level, reason}.
     """
+    if memory.status == MemoryStatus.DELETED.value:
+        return {"allowed": False, "display_level": "hidden", "reason": "Memory deleted"}
+    if viewer_role is None or viewer_role == Role.PATIENT.value:
+        if memory.status != MemoryStatus.APPROVED.value:
+            return {"allowed": False, "display_level": "hidden", "reason": "Memory is not approved"}
+        if memory.visibility not in {Visibility.PATIENT.value, Visibility.BOTH.value}:
+            return {"allowed": False, "display_level": "hidden", "reason": "Memory is not patient-visible"}
     if memory.status == MemoryStatus.RESTRICTED.value:
         if viewer_role in {Role.CAREGIVER.value, Role.GUARDIAN.value,
                            Role.CLINICIAN.value, Role.ADMINISTRATOR.value}:

@@ -1,7 +1,8 @@
 """Knowledge graph routes: export, nodes, edges, review, trace (spec §9, §24).
 
 RBAC:
-  - everyone in scope may read the graph (patients see their own)
+  - family and support roles may read the review graph; patient-facing graph
+    facts are delivered through filtered people and conversation routes
   - reviewer/guardian/admin confirm or dispute edges (review lifecycle)
   - contributor may create suggested edges
 """
@@ -11,9 +12,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_patient_scope, require_roles
+from app.api.deps import get_current_user, get_patient_scope, require_consent_action, require_roles
 from app.core.database import get_db
-from app.models.constants import EdgeStatus, Role
+from app.models.constants import ConsentAction, EdgeStatus, Role
 from app.models.graph import GraphEdge, GraphNode
 from app.models.user import User
 from app.schemas.graph import EdgeCreate, EdgeReview, NodeCreate
@@ -21,7 +22,7 @@ from app.services import audit_service, graph_service
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
-_REVIEW_ROLES = [Role.FAMILY_REVIEWER.value, Role.GUARDIAN.value, Role.ADMINISTRATOR.value]
+_REVIEW_ROLES = [Role.FAMILY_REVIEWER.value, Role.GUARDIAN.value]
 _CREATE_ROLES = _REVIEW_ROLES + [Role.FAMILY_CONTRIBUTOR.value, Role.CLINICIAN.value,
                                  Role.CAREGIVER.value]
 _READ_ROLES = _CREATE_ROLES
@@ -47,6 +48,7 @@ def get_graph(
     patient_id: str | None = None,
 ):
     pid = _resolve_scope(scope, patient_id)
+    require_consent_action(db, current, pid, ConsentAction.GRAPH_VIEW)
     graph = graph_service.get_patient_graph(db, pid)
     return {
         "nodes": [_node_json(n) for n in graph["nodes"]],
@@ -64,6 +66,7 @@ def list_nodes(
     name: str | None = None,
 ):
     pid = _resolve_scope(scope, patient_id)
+    require_consent_action(db, current, pid, ConsentAction.GRAPH_VIEW)
     nodes = graph_service.find_nodes(db, pid, node_type=node_type, name_contains=name)
     return {"items": [_node_json(n) for n in nodes], "count": len(nodes)}
 
@@ -77,6 +80,7 @@ def create_node(
     patient_id: str | None = None,
 ):
     pid = _resolve_scope(scope, patient_id)
+    require_consent_action(db, current, pid, ConsentAction.GRAPH_EDIT)
     node = graph_service.create_node(db, pid, body.node_type, body.name, body.metadata)
     audit_service.log_action(db, current.id, "created", "graph_node", node.id)
     db.commit()
@@ -92,6 +96,7 @@ def create_edge(
     patient_id: str | None = None,
 ):
     pid = _resolve_scope(scope, patient_id)
+    require_consent_action(db, current, pid, ConsentAction.GRAPH_EDIT)
     for node_id in (body.source_node_id, body.target_node_id):
         node = db.get(GraphNode, node_id)
         if node is None or node.patient_id != pid:
@@ -119,6 +124,7 @@ def review_edge(
         raise HTTPException(status_code=404, detail="Edge not found")
     if scope is not None and edge.patient_id != scope:
         raise HTTPException(status_code=403, detail="Not your edge")
+    require_consent_action(db, current, edge.patient_id, ConsentAction.GRAPH_REVIEW)
     if body.status not in {EdgeStatus.CONFIRMED.value, EdgeStatus.DISPUTED.value,
                            EdgeStatus.REJECTED.value}:
         raise HTTPException(status_code=400, detail="Invalid status")
@@ -140,6 +146,7 @@ def trace_edge(
         raise HTTPException(status_code=404, detail="Edge not found")
     if scope is not None and edge.patient_id != scope:
         raise HTTPException(status_code=403, detail="Not your edge")
+    require_consent_action(db, current, edge.patient_id, ConsentAction.GRAPH_VIEW)
     evidence = graph_service.trace_edge(db, edge_id)
     return {"items": [
         {"id": ev.id, "source_data_ref": ev.source_data_ref,
@@ -160,6 +167,7 @@ def person_relations(
         raise HTTPException(status_code=404, detail="Node not found")
     if scope is not None and node.patient_id != scope:
         raise HTTPException(status_code=403, detail="Not your graph")
+    require_consent_action(db, current, node.patient_id, ConsentAction.GRAPH_VIEW)
     return {"items": graph_service.resolve_relations_for_person(db, scope or node.patient_id, person_id)}
 
 

@@ -20,7 +20,7 @@ def list_notifications(
     current: Annotated[User, Depends(get_current_user)],
     unread: bool = False,
 ):
-    notifications = notification_service.list_for_user(db, current.id, unread_only=unread)
+    notifications = notification_service.list_for_user(db, current, unread_only=unread)
     return {"items": [
         {"id": n.id, "type": n.type, "message": n.message, "read": n.read,
          "created_at": n.created_at.isoformat()}
@@ -35,7 +35,7 @@ def mark_read(
     current: Annotated[User, Depends(get_current_user)],
 ):
     notification = db.get(Notification, notification_id)
-    if notification is None or notification.user_id != current.id:
+    if notification is None or not notification_service.notification_is_visible(db, notification, current):
         raise HTTPException(status_code=404, detail="Notification not found")
     notification.read = True
     db.commit()
@@ -47,6 +47,6 @@ def mark_all_read(
     db: Annotated[Session, Depends(get_db)],
     current: Annotated[User, Depends(get_current_user)],
 ):
-    count = notification_service.mark_all_read(db, current.id)
+    count = notification_service.mark_all_read(db, current)
     db.commit()
     return {"ok": True, "updated": count}
