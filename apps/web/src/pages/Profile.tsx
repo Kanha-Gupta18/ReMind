@@ -18,6 +18,13 @@ export function Profile() {
   const canViewRelationships = capabilities.data?.actions.includes('relationships:view') ?? false
   const canManageRelationships = capabilities.data?.actions.includes('relationships:manage') ?? false
   const [notice, setNotice] = useState<string | null>(null)
+  const isUnlinkedAccount = user?.role !== 'patient' && (
+    user?.patient_ids.length === 0 || capabilities.errorStatus === 403
+  )
+
+  if (isUnlinkedAccount) {
+    return <ProfileAccessUnavailable />
+  }
 
   if (user?.role !== 'patient' && user?.patient_ids.length && !selectedPatientId) {
     return (
@@ -65,6 +72,15 @@ export function Profile() {
         )}
         {canViewRelationships && <RelationshipsSection canManage={canManageRelationships} />}
       </div>
+    </section>
+  )
+}
+
+function ProfileAccessUnavailable() {
+  return (
+    <section className="empty-state" aria-live="polite">
+      <h1>Patient profile unavailable</h1>
+      <p>This account does not have an active patient relationship. Ask the patient to restore access before viewing their profile.</p>
     </section>
   )
 }
