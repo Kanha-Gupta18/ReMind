@@ -1,5 +1,7 @@
 # ReMind
 
+[![CI](https://github.com/Kanha-Gupta18/ReMind/actions/workflows/ci.yml/badge.svg)](https://github.com/Kanha-Gupta18/ReMind/actions/workflows/ci.yml)
+
 ReMind is an evidence-grounded memory-support platform for people living with dementia, Alzheimer's disease, acquired brain injury, or other forms of memory impairment. It helps families preserve autobiographical context and present verified memories through a calm timeline and conversational interface.
 
 > [!IMPORTANT]
@@ -150,3 +152,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Safety-sensitiv
 ## License
 
 No open-source license has been selected yet. Until a license is added, all rights are reserved by the repository owner.
+
+## Live Demo
+
+Deployment in progress — link will be added on first Railway/Render deploy.
