@@ -151,7 +151,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Safety-sensitiv
 
 ## License
 
-No open-source license has been selected yet. Until a license is added, all rights are reserved by the repository owner.
+This project is licensed under the [MIT License](LICENSE).
 
 ## Live Demo
 
