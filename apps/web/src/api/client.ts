@@ -10,6 +10,7 @@ import type {
   DraftSummary,
   EngagementStats,
   EvidenceItem,
+  CanonicalEvent,
   FaceMatch,
   GraphEdge,
   GraphEvidence,
@@ -29,6 +30,7 @@ import type {
   PatientCapabilities,
   PatientOnboardingRequest,
   PatientProfileUpdate,
+  CanonicalPlace,
   Relationship,
   RelationItem,
   Revision,
@@ -350,6 +352,9 @@ export const api = {
   traceGraphEdge: (id: string) =>
     request<{ items: GraphEvidence[] }>(`/graph/edges/${id}/trace`),
 
+  knowledgePlaces: () => request<{ items: CanonicalPlace[]; count: number }>('/knowledge/places'),
+  knowledgeEvents: () => request<{ items: CanonicalEvent[]; count: number }>('/knowledge/events'),
+
   safetyEvents: (unacknowledgedOnly = false, patientId?: string) => {
     const params = new URLSearchParams()
     if (unacknowledgedOnly) params.set('unacknowledged_only', 'true')
@@ -385,5 +390,10 @@ export const api = {
   editMemory: (id: string, payload: MemoryEdit) =>
     request<MemoryDetail>(`/memories/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   getEvidence: (id: string) => request<{ items: EvidenceItem[] }>(`/memories/${id}/evidence`),
+  reviewEvidence: (memoryId: string, evidenceId: string, status: 'ACCEPTED' | 'REJECTED' | 'DISPUTED') =>
+    request<Pick<EvidenceItem, 'id' | 'review_status' | 'reviewed_by' | 'reviewed_at'>>(
+      `/memories/${memoryId}/evidence/${evidenceId}/review`,
+      { method: 'POST', body: JSON.stringify({ status }) },
+    ),
   getRevisions: (id: string) => request<{ items: Revision[] }>(`/memories/${id}/revisions`),
 }

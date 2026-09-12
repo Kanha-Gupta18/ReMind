@@ -30,7 +30,6 @@ from app.models.constants import (
     EvidenceReviewStatus,
     MemoryStatus,
     Role,
-    Visibility,
 )
 from app.models.knowledge import Event, Place
 from app.models.memory import Evidence, MemoryCard

@@ -203,10 +203,14 @@ export interface MemorySummary {
   approved_by: string | null
   approved_at: string | null
   created_at: string
+  approved_revision_id?: string | null
+  candidate_revision_id?: string | null
+  has_pending_revision?: boolean
+  structured_context: StructuredContext
 }
 
 export interface MemoryDetail extends MemorySummary {
-  narrative: string
+  narrative: string | null
   media_urls: string[]
   contradictions: string[]
   confidence_breakdown: Record<string, unknown> | null
@@ -222,12 +226,23 @@ export interface MemoryCreate {
   sensitivity_flags?: string[]
   visibility?: string | null
   media_urls?: string[]
+  people_ids?: string[]
+  place_ids?: string[]
+  event_ids?: string[]
 }
 
 export interface MemoryEdit {
   title?: string
   narrative?: string
   tags?: string[]
+  memory_date?: string | null
+  date_accuracy?: string | null
+  visibility?: string
+  sensitivity_flags?: string[]
+  media_urls?: string[]
+  people_ids?: string[]
+  place_ids?: string[]
+  event_ids?: string[]
   note?: string
 }
 
@@ -238,13 +253,60 @@ export interface EvidenceItem {
   confidence: number | null
   review_status: string
   source_file: string | null
+  revision_id: string | null
+  reviewed_by: string | null
+  reviewed_at: string | null
+}
+
+export interface ReviewRecord {
+  id: string
+  decision: string
+  reason: string | null
+  actor_id: string
+  created_at: string
 }
 
 export interface Revision {
+  id: string
   revision_number: number
   status: string
   content: Record<string, unknown> | null
   authored_by: string | null
+  change_note: string | null
+  is_approved: boolean
+  is_candidate: boolean
+  reviews: ReviewRecord[]
+  created_at: string
+}
+
+export interface StructuredReference {
+  id: string
+  name: string
+}
+
+export interface StructuredContext {
+  people: StructuredReference[]
+  places: StructuredReference[]
+  events: StructuredReference[]
+}
+
+export interface CanonicalPlace {
+  id: string
+  patient_id: string
+  name: string
+  aliases: string[]
+  description: string | null
+  created_at: string
+}
+
+export interface CanonicalEvent {
+  id: string
+  patient_id: string
+  name: string
+  description: string | null
+  start_date: string | null
+  end_date: string | null
+  date_accuracy: string
   created_at: string
 }
 

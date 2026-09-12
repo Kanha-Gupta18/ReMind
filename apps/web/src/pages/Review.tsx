@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
-import type { MemoryCreate as MemoryCreatePayload } from '../api/types'
+import type { MemoryCreate as MemoryCreatePayload, StructuredReference } from '../api/types'
 import { CREATE_MEMORY_ROLES, REVIEW_ROLES } from '../api/types'
 import { useApiData } from '../api/useApiData'
 import { useAuth } from '../auth/AuthContext'
@@ -14,6 +14,8 @@ const TABS = [
   { key: 'DRAFT', label: 'Drafts' },
   { key: 'AI_RECONSTRUCTED', label: 'AI drafts' },
   { key: 'APPROVED', label: 'Approved' },
+  { key: 'DISPUTED', label: 'Disputed' },
+  { key: 'REJECTED', label: 'Rejected' },
   { key: 'ALL', label: 'All' },
 ]
 
@@ -103,10 +105,13 @@ export function Review() {
                 <Badge tone={statusTone(m.status)}>{m.status}</Badge>
               </div>
               <div className="row-sub">
-                {m.memory_date ?? 'date unknown'} · confidence {m.confidence_score}
+                {m.memory_date ?? 'date unknown'}, confidence {m.confidence_score}
                 {m.confidence_band ? ` (${m.confidence_band})` : ''}
-                {m.tags.length > 0 ? ` · ${m.tags.slice(0, 3).join(', ')}` : ''}
+                {m.tags.length > 0 ? `, ${m.tags.slice(0, 3).join(', ')}` : ''}
               </div>
+              {m.has_pending_revision && m.approved_revision_id && (
+                <p className="row-note">A published revision remains active while this candidate is reviewed.</p>
+              )}
               {m.sensitivity_flags.length > 0 && (
                 <div className="chips">
                   {m.sensitivity_flags.map((f) => (
@@ -191,8 +196,14 @@ function MemoryForm({ onDone }: { onDone: (ok: boolean) => void }) {
   const [date_accuracy, setDateAccuracy] = useState('approximate')
   const [tagsText, setTagsText] = useState('')
   const [visibility, setVisibility] = useState('both')
+  const [peopleIds, setPeopleIds] = useState<string[]>([])
+  const [placeIds, setPlaceIds] = useState<string[]>([])
+  const [eventIds, setEventIds] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const peopleState = useApiData(() => api.people(), [])
+  const placesState = useApiData(() => api.knowledgePlaces(), [])
+  const eventsState = useApiData(() => api.knowledgeEvents(), [])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -205,6 +216,9 @@ function MemoryForm({ onDone }: { onDone: (ok: boolean) => void }) {
       date_accuracy,
       tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
       visibility,
+      people_ids: peopleIds,
+      place_ids: placeIds,
+      event_ids: eventIds,
     }
     try {
       await api.createMemory(payload)
@@ -217,13 +231,19 @@ function MemoryForm({ onDone }: { onDone: (ok: boolean) => void }) {
   }
 
   return (
-    <form className="panel form" onSubmit={onSubmit}>
-      <h2>Create a memory</h2>
-      <label>
+    <form className="panel form revision-form" onSubmit={onSubmit}>
+      <div className="section-heading">
+        <div>
+          <h2>Create a memory</h2>
+          <p>Start a draft with its date and known people, places, and events.</p>
+        </div>
+      </div>
+      <div className="form-grid">
+      <label className="form-span-2">
         Title
         <input value={title} onChange={(e) => setTitle(e.target.value)} required />
       </label>
-      <label>
+      <label className="form-span-2">
         Narrative
         <textarea value={narrative} onChange={(e) => setNarrative(e.target.value)} rows={4} />
       </label>
@@ -255,6 +275,12 @@ function MemoryForm({ onDone }: { onDone: (ok: boolean) => void }) {
           ))}
         </select>
       </label>
+      </div>
+      <div className="reference-grid">
+        <MemoryReferencePicker label="People" items={peopleState.data?.items ?? []} selected={peopleIds} onChange={setPeopleIds} loading={peopleState.loading} error={peopleState.error} />
+        <MemoryReferencePicker label="Places" items={placesState.data?.items ?? []} selected={placeIds} onChange={setPlaceIds} loading={placesState.loading} error={placesState.error} />
+        <MemoryReferencePicker label="Events" items={eventsState.data?.items ?? []} selected={eventIds} onChange={setEventIds} loading={eventsState.loading} error={eventsState.error} />
+      </div>
       {error && <p className="error">{error}</p>}
       <div className="form-actions">
         <button type="submit" className="btn primary" disabled={busy}>
@@ -262,5 +288,33 @@ function MemoryForm({ onDone }: { onDone: (ok: boolean) => void }) {
         </button>
       </div>
     </form>
+  )
+}
+
+function MemoryReferencePicker({ label, items, selected, onChange, loading, error }: {
+  label: string
+  items: StructuredReference[]
+  selected: string[]
+  onChange: (ids: string[]) => void
+  loading: boolean
+  error: string | null
+}) {
+  return (
+    <fieldset className="reference-picker">
+      <legend>{label}</legend>
+      {loading && <p className="muted">Loading...</p>}
+      {error && <p className="error">Unavailable: {error}</p>}
+      {!loading && !error && items.length === 0 && <p className="muted">None recorded yet.</p>}
+      {items.map((item) => (
+        <label key={item.id} className="choice-row">
+          <input
+            type="checkbox"
+            checked={selected.includes(item.id)}
+            onChange={(event) => onChange(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))}
+          />
+          <span>{item.name}</span>
+        </label>
+      ))}
+    </fieldset>
   )
 }
