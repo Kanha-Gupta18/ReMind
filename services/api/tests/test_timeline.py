@@ -45,7 +45,11 @@ def test_timeline_decades_grouping(client, tokens):
 
 
 def test_timeline_places_grouping(client, tokens):
-    _approved(client, tokens, title="Goa trip", tags=["place:Goa"])
+    place = client.post(
+        "/knowledge/places", json={"name": "Goa"},
+        headers=auth(tokens["reviewer"]),
+    ).json()
+    _approved(client, tokens, title="Goa trip", place_ids=[place["id"]])
     _approved(client, tokens, title="No place", tags=["holiday"])
     r = client.get("/timeline/places", headers=auth(tokens["patient"]))
     assert r.status_code == 200

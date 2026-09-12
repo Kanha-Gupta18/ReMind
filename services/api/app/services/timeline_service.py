@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.clinical import EngagementLog
 from app.models.constants import MemoryStatus
+from app.models.knowledge import MemoryPlaceLink, Place
 from app.models.memory import MemoryCard
 from app.services import consent_service, safety_service
 
@@ -51,7 +52,13 @@ def get_timeline(
         db.query(MemoryCard)
         .filter(
             MemoryCard.patient_id == patient_id,
-            MemoryCard.status == MemoryStatus.APPROVED.value,
+            MemoryCard.approved_revision_id.isnot(None),
+            MemoryCard.status.notin_([
+                MemoryStatus.DISPUTED.value,
+                MemoryStatus.RESTRICTED.value,
+                MemoryStatus.ARCHIVED.value,
+                MemoryStatus.DELETED.value,
+            ]),
         )
         .order_by(MemoryCard.memory_date.desc().nullslast(), MemoryCard.created_at.desc())
         .all()
@@ -92,18 +99,21 @@ def group_by_decade(db: Session, patient_id: str) -> list[dict]:
 
 
 def group_by_place(db: Session, patient_id: str) -> list[dict]:
-    """Memories clustered by place (from tags/graph). Falls back to 'Unknown'.
-
-    [{place, count, memories}]. Places come from a memory's tags; graph
-    place-nodes are the richer source used by the /places page later.
-    """
+    """Group published memories by their canonical place links."""
     memories = get_timeline(db, patient_id)
     groups: dict[str, list[MemoryCard]] = {}
     for memory in memories:
-        tags = memory.tags or []
-        place = next((t for t in tags if str(t).lower().startswith("place:")), None)
-        key = str(place).split(":", 1)[1] if place else "Unknown"
-        groups.setdefault(key, []).append(memory)
+        places = (
+            db.query(Place)
+            .join(MemoryPlaceLink, MemoryPlaceLink.place_id == Place.id)
+            .filter(MemoryPlaceLink.memory_id == memory.id)
+            .order_by(Place.name, Place.id)
+            .all()
+        )
+        if not places:
+            groups.setdefault("Unknown", []).append(memory)
+        for place in places:
+            groups.setdefault(place.name, []).append(memory)
 
     return [
         {

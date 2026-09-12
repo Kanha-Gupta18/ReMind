@@ -4,7 +4,8 @@ Base.metadata knows about them."""
 
 from app.models.user import AuthSession, AuditLog, PatientAccessGrant, PatientProfile, ThirdPartyConsent, User
 from app.models.consent import ConsentDirective
-from app.models.memory import Evidence, MemoryCard, MemoryRevision, Source
+from app.models.memory import Evidence, MemoryCard, MemoryReviewRecord, MemoryRevision, Source
+from app.models.knowledge import Event, MemoryEventLink, MemoryPersonLink, MemoryPlaceLink, Place
 from app.models.people import FaceMatch, Person
 from app.models.graph import GraphEdge, GraphEvidence, GraphNode
 from app.models.conversation import ConversationMessage, ConversationSession, SafetyEvent
@@ -21,7 +22,13 @@ __all__ = [
     "Source",
     "MemoryCard",
     "MemoryRevision",
+    "MemoryReviewRecord",
     "Evidence",
+    "Place",
+    "Event",
+    "MemoryPersonLink",
+    "MemoryPlaceLink",
+    "MemoryEventLink",
     "Person",
     "FaceMatch",
     "GraphNode",

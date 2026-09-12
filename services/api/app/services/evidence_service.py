@@ -10,7 +10,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.constants import EvidenceReviewStatus, EvidenceType
-from app.models.memory import Evidence, Source
+from app.models.base import utcnow
+from app.models.memory import Evidence, MemoryCard, Source
 
 
 def add_evidence(
@@ -21,10 +22,16 @@ def add_evidence(
     claim: str,
     confidence: float | None = None,
     extractor_version: str | None = None,
+    revision_id: str | None = None,
 ) -> Evidence:
     """Record one piece of evidence for a memory (status PENDING)."""
+    if revision_id is None:
+        memory = db.get(MemoryCard, memory_id)
+        if memory is not None:
+            revision_id = memory.candidate_revision_id or memory.approved_revision_id
     ev = Evidence(
         memory_id=memory_id,
+        revision_id=revision_id,
         source_id=source_id,
         evidence_type=evidence_type,
         claim=claim,
@@ -37,12 +44,16 @@ def add_evidence(
     return ev
 
 
-def update_evidence_review(db: Session, evidence_id: str, review_status: str) -> Evidence:
+def update_evidence_review(
+    db: Session, evidence_id: str, review_status: str, reviewed_by: str,
+) -> Evidence:
     """Reviewer accepts, rejects, or disputes a piece of evidence."""
     ev = db.get(Evidence, evidence_id)
     if ev is None:
         raise ValueError(f"Evidence {evidence_id} not found")
     ev.review_status = review_status
+    ev.reviewed_by = reviewed_by
+    ev.reviewed_at = utcnow()
     db.flush()
     return ev
 
