@@ -136,8 +136,8 @@ administration.
 
 ## Current limitations
 
-Before controlled testing, the project still needs correct revision promotion,
-deletion propagation, and authorized export. It also needs encrypted object
+Before controlled testing, the project still needs correction and deletion
+propagation and authorized export. It also needs encrypted object
 storage, background jobs, real multimodal processing, production identity controls
 such as MFA, observability, and patient-grade accessibility.
 

@@ -8,7 +8,9 @@
   non-disputed facts.
 - [x] Remove caller-controlled server file paths and constrain all source reads to managed storage.
 - [x] Turn consent directives into authorization policies across upload, access, retrieval, and delivery.
-- Correct memory revision promotion and rejection behavior.
+- [x] Correct memory revision promotion and rejection behavior.
+- [x] Store canonical people, places, events, dates, evidence, and review records
+  in immutable memory revisions.
 - Implement source deletion propagation and regression tests.
 - Add adversarial tests for the product's core invariant.
 

@@ -8,7 +8,7 @@ implementation status separately from planned functionality.
 | 1 | Development baseline and test reliability | Complete: fresh installs, web build, migrations, schema drift check, 98 API tests |
 | 2 | Immediate access and patient-delivery flaws | Complete: patient delivery is fail-closed across content routes; 121 API tests |
 | 3 | Accounts, patient profiles, and consent | Complete: revocable relationships, server-backed sessions, onboarding, profiles, and enforced versioned consent; 135 API tests |
-| 4 | Canonical memory data and revisions | Planned |
+| 4 | Canonical memory data and revisions | Complete: immutable candidates, approved revision selection, structured context, evidence review, and append-only decisions; 142 API tests |
 | 5 | Corrections, deletion, and export | Planned |
 | 6 | Trusted uploads and processing jobs | Planned |
 | 7 | Family contribution and verification workspace | Planned |
@@ -100,6 +100,36 @@ Branch: `codex/03-accounts-consent`.
 - All 135 API tests passed. TypeScript checking, the Vite production build,
   `git diff --check`, and the UI mechanical-quality detector passed.
 
-Canonical revision selection remains Section 4. Correction and deletion
-propagation, export, production identity hardening such as MFA, and the full visual
-redesign remain assigned to Sections 5, 8, and 14 as defined in the build plan.
+Canonical revision selection is completed in Section 4 below. Correction and
+deletion propagation, export, production identity hardening such as MFA, and the
+full visual redesign remain assigned to Sections 5, 8, and 14 as defined in the
+build plan.
+
+## Section 4 verification
+
+Branch: `codex/04-canonical-memory-revisions`.
+
+- A memory now keeps explicit approved and candidate revision pointers. Editing an
+  approved memory creates an immutable candidate without changing what the patient
+  receives. The earlier approved revision is superseded only when the candidate is
+  approved.
+- Submission, approval, rejection, and dispute decisions are append-only review
+  records tied to one revision. A submitted candidate cannot be silently replaced
+  or approved twice. Rejection leaves an existing approved revision in place.
+- People, places, events, dates, visibility, sensitivity labels, media, and other
+  memory content are captured together in each revision snapshot. Patient-scoped
+  foreign IDs are rejected.
+- Evidence is tied to the revision it supports and records its reviewer and review
+  time. Reviewers can accept, reject, or dispute evidence from the memory screen.
+- The family review interface compares the candidate with the published revision,
+  shows structured context, explains which version the patient receives, and
+  presents the full decision history without exposing raw JSON.
+- The migration repairs the known legacy promotion error, backfills approved and
+  candidate pointers, converts legacy place tags into canonical place records, and
+  preserves existing data.
+- All 142 API tests passed. The TypeScript and Vite production build,
+  `git diff --check`, a live desktop walkthrough, and the UI mechanical-quality
+  detector passed.
+
+Correction propagation, deleted-source invalidation, and authorized export remain
+assigned to Section 5. The full product-wide visual system remains Section 8.
