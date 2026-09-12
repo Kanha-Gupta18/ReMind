@@ -255,6 +255,7 @@ export interface EvidenceItem {
   source_file: string | null
   revision_id: string | null
   reviewed_by: string | null
+  reviewed_by_name: string | null
   reviewed_at: string | null
 }
 
@@ -263,6 +264,7 @@ export interface ReviewRecord {
   decision: string
   reason: string | null
   actor_id: string
+  actor_name: string | null
   created_at: string
 }
 
@@ -272,9 +274,11 @@ export interface Revision {
   status: string
   content: Record<string, unknown> | null
   authored_by: string | null
+  authored_by_name: string | null
   change_note: string | null
   is_approved: boolean
   is_candidate: boolean
+  structured_context: StructuredContext
   reviews: ReviewRecord[]
   created_at: string
 }

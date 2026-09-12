@@ -78,9 +78,17 @@ def test_candidate_edit_keeps_published_content_until_approval(client, tokens):
     assert history[1]["content"]["title"] == "Corrected memory"
     assert history[1]["change_note"] == "Family corrected the date"
     assert history[1]["is_approved"] is True
+    assert history[1]["authored_by_name"] == "family_reviewer"
+    assert history[1]["structured_context"] == {
+        "people": [], "places": [], "events": [],
+    }
     assert [item["decision"] for item in history[1]["reviews"]] == [
         "submitted", "approved"
     ]
+    assert all(
+        item["actor_name"] == "family_reviewer"
+        for item in history[1]["reviews"]
+    )
 
 
 def test_rejected_candidate_does_not_replace_approved_revision(client, tokens):
@@ -209,6 +217,7 @@ def test_evidence_is_revision_scoped_and_review_attributed(client, tokens):
     )
     assert reviewed.status_code == 200
     assert reviewed.json()["reviewed_by"] is not None
+    assert reviewed.json()["reviewed_by_name"] == "family_reviewer"
     assert reviewed.json()["reviewed_at"] is not None
 
     item = client.get(
@@ -217,6 +226,7 @@ def test_evidence_is_revision_scoped_and_review_attributed(client, tokens):
     assert item["revision_id"] is not None
     assert item["review_status"] == "ACCEPTED"
     assert item["reviewed_by"] == reviewed.json()["reviewed_by"]
+    assert item["reviewed_by_name"] == "family_reviewer"
 
 
 def test_review_records_are_append_only(client, tokens):

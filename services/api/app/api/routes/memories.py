@@ -325,18 +325,28 @@ def get_revisions(
     memory = _get_scoped(db, memory_id, scope)
     _require_memory_action(db, current, memory, ConsentAction.MEMORIES_VIEW)
     revisions = memory_service.revision_history(db, memory.id)
+    reviews = memory_service.review_history(db, memory.id)
     reviews_by_revision: dict[str, list] = {}
-    for review in memory_service.review_history(db, memory.id):
+    for review in reviews:
         reviews_by_revision.setdefault(review.revision_id, []).append(review)
+    actor_ids = {review.actor_id for review in reviews if review.actor_id}
+    actor_ids.update(revision.authored_by for revision in revisions if revision.authored_by)
+    actor_names = dict(
+        db.query(User.id, User.full_name).filter(User.id.in_(actor_ids)).all()
+    ) if actor_ids else {}
     return {"items": [
         {"id": r.id, "revision_number": r.revision_number, "status": r.status,
          "content": r.content, "authored_by": r.authored_by,
+         "authored_by_name": actor_names.get(r.authored_by),
          "change_note": r.change_note,
          "is_approved": r.id == memory.approved_revision_id,
          "is_candidate": r.id == memory.candidate_revision_id,
+         "structured_context": _structured_context(db, r.content or {}, False),
          "reviews": [
              {"id": item.id, "decision": item.decision, "reason": item.reason,
-              "actor_id": item.actor_id, "created_at": item.created_at.isoformat()}
+              "actor_id": item.actor_id,
+              "actor_name": actor_names.get(item.actor_id),
+              "created_at": item.created_at.isoformat()}
              for item in reviews_by_revision.get(r.id, [])
          ],
          "created_at": r.created_at.isoformat()}
@@ -360,7 +370,14 @@ def get_evidence(
                       if p["evidence"].review_status == EvidenceReviewStatus.ACCEPTED.value
                       and (not p["evidence"].source_id or
                            (p["source"] and p["source"].patient_id == memory.patient_id
-                            and p["source"].deletion_status == DeletionStatus.ACTIVE.value))]
+                           and p["source"].deletion_status == DeletionStatus.ACTIVE.value))]
+    reviewer_ids = {
+        item["evidence"].reviewed_by for item in provenance
+        if item["evidence"].reviewed_by
+    }
+    reviewer_names = dict(
+        db.query(User.id, User.full_name).filter(User.id.in_(reviewer_ids)).all()
+    ) if reviewer_ids else {}
     return {"items": [
         {"id": p["evidence"].id,
          "claim": p["evidence"].claim,
@@ -369,6 +386,7 @@ def get_evidence(
          "review_status": p["evidence"].review_status,
          "revision_id": p["evidence"].revision_id,
          "reviewed_by": p["evidence"].reviewed_by,
+         "reviewed_by_name": reviewer_names.get(p["evidence"].reviewed_by),
          "reviewed_at": (p["evidence"].reviewed_at.isoformat()
                          if p["evidence"].reviewed_at else None),
          "source_file": p["source"].file_name if p["source"] else None}
@@ -399,6 +417,7 @@ def review_evidence(
     return {
         "id": evidence.id, "review_status": evidence.review_status,
         "reviewed_by": evidence.reviewed_by,
+        "reviewed_by_name": current.full_name,
         "reviewed_at": evidence.reviewed_at.isoformat(),
     }
 

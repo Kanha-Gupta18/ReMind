@@ -131,6 +131,7 @@ export function MemoryDetail() {
                 visibility={contentString(publishedRevision, 'visibility') ?? 'both'}
                 confidence={Number(publishedRevision.content?.confidence_score ?? 0)}
                 confidenceBand={null}
+                context={publishedRevision.structured_context}
                 tags={Array.isArray(publishedRevision.content?.tags) ? publishedRevision.content.tags as string[] : []}
                 sensitivityFlags={Array.isArray(publishedRevision.content?.sensitivity_flags) ? publishedRevision.content.sensitivity_flags as string[] : []}
               />
@@ -218,7 +219,7 @@ export function MemoryDetail() {
                       {evidence.source_file ?? 'No source file'}
                       {evidence.confidence !== null ? `, confidence ${evidence.confidence}` : ''}
                     </p>
-                    {evidence.reviewed_at && <p className="review-attribution">Reviewed {formatDate(evidence.reviewed_at)} by {evidence.reviewed_by}</p>}
+                    {evidence.reviewed_at && <p className="review-attribution">Reviewed {formatDate(evidence.reviewed_at)} by {evidence.reviewed_by_name ?? evidence.reviewed_by}</p>}
                     {canReview && evidence.review_status === 'PENDING' && (
                       <div className="row-actions evidence-actions">
                         <button type="button" className="btn success" disabled={busy} onClick={() => act(() => api.reviewEvidence(id, evidence.id, 'ACCEPTED'), 'Evidence accepted.')}>Accept</button>
@@ -297,9 +298,9 @@ function RevisionEntry({ revision }: { revision: Revision }) {
         <div className="row-title"><span>Revision {revision.revision_number}</span><Badge tone={statusTone(revision.status)}>{humanize(revision.status)}</Badge>{revision.is_approved && <Badge tone="green">Published</Badge>}{revision.is_candidate && <Badge tone="blue">Candidate</Badge>}</div>
         <p className="revision-title">{title}</p>
         {narrative && <p className="revision-excerpt">{narrative}</p>}
-        <p className="review-attribution">Created {formatDate(revision.created_at)} by {revision.authored_by ?? 'system'}</p>
+        <p className="review-attribution">Created {formatDate(revision.created_at)} by {revision.authored_by_name ?? revision.authored_by ?? 'system'}</p>
         {revision.change_note && <p className="change-note"><strong>Change note:</strong> {revision.change_note}</p>}
-        {revision.reviews.map((review) => <div key={review.id} className="review-record"><strong>{humanize(review.decision)}</strong><span>{formatDate(review.created_at)} by {review.actor_id}</span>{review.reason && <p>{review.reason}</p>}</div>)}
+        {revision.reviews.map((review) => <div key={review.id} className="review-record"><strong>{humanize(review.decision)}</strong><span>{formatDate(review.created_at)} by {review.actor_name ?? review.actor_id}</span>{review.reason && <p>{review.reason}</p>}</div>)}
       </div>
     </article>
   )

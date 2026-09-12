@@ -391,7 +391,7 @@ export const api = {
     request<MemoryDetail>(`/memories/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   getEvidence: (id: string) => request<{ items: EvidenceItem[] }>(`/memories/${id}/evidence`),
   reviewEvidence: (memoryId: string, evidenceId: string, status: 'ACCEPTED' | 'REJECTED' | 'DISPUTED') =>
-    request<Pick<EvidenceItem, 'id' | 'review_status' | 'reviewed_by' | 'reviewed_at'>>(
+    request<Pick<EvidenceItem, 'id' | 'review_status' | 'reviewed_by' | 'reviewed_by_name' | 'reviewed_at'>>(
       `/memories/${memoryId}/evidence/${evidenceId}/review`,
       { method: 'POST', body: JSON.stringify({ status }) },
     ),
