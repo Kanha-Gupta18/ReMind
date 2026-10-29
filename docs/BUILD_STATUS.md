@@ -8,7 +8,7 @@ implementation status separately from planned functionality.
 | 1 | Development baseline and test reliability | Complete: fresh installs, web build, migrations, schema drift check, 98 API tests |
 | 2 | Immediate access and patient-delivery flaws | Complete: patient delivery is fail-closed across content routes; 121 API tests |
 | 3 | Accounts, patient profiles, and consent | Complete: revocable relationships, server-backed sessions, onboarding, profiles, and enforced versioned consent; 135 API tests |
-| 4 | Canonical memory data and revisions | Complete: immutable candidates, approved revision selection, structured context, evidence review, and append-only decisions; 142 API tests |
+| 4 | Canonical memory data and revisions | Implemented; awaiting merge and user review: immutable candidates, approved revision selection, structured context, evidence review, and append-only decisions; 145 API tests |
 | 5 | Corrections, deletion, and export | Planned |
 | 6 | Trusted uploads and processing jobs | Planned |
 | 7 | Family contribution and verification workspace | Planned |
@@ -133,3 +133,32 @@ Branch: `codex/04-canonical-memory-revisions`.
 
 Correction propagation, deleted-source invalidation, and authorized export remain
 assigned to Section 5. The full product-wide visual system remains Section 8.
+
+### Section 4 review fixes, October 29, 2026
+
+- Candidate sensitivity categories are checked against current consent before
+  editing, submission, and approval. Changing consent while a candidate awaits
+  review prevents its approval without replacing the published revision.
+- Three regression cases verify forbidden edits, submission after consent changes,
+  and approval after consent changes. Blocked actions preserve the approved
+  revision, candidate state, and decision history.
+- All 145 backend tests passed using `venv\Scripts\python.exe -m pytest -q
+  -p no:cacheprovider` from `services/api`. The frontend production build passed
+  using `npm run build` from `apps/web`.
+- CI runs backend tests and a Node 22 frontend clean installation and production
+  build on main pushes, `codex/**` pushes, and pull requests targeting main.
+
+To check the consent behavior with synthetic data:
+
+1. Publish a memory with no sensitivity category, then create a candidate marked
+   `SERIOUS_ILLNESS` and submit it for review.
+2. In the patient consent screen, prohibit `SERIOUS_ILLNESS`.
+3. Attempt to approve the candidate as the family reviewer. The API returns 403;
+   the candidate stays awaiting review and the original approved memory remains
+   available to the patient.
+4. With that restriction still active, attempt an edit that adds
+   `SERIOUS_ILLNESS` to another permitted memory. The edit returns 403 and creates
+   no revision.
+
+The CI result on GitHub and the user's Section 4 walkthrough remain release
+checkpoints. Section 5 has not started.

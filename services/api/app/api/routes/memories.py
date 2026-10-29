@@ -71,12 +71,17 @@ def _require_memory_action(
     current: User,
     memory: MemoryCard,
     action: ConsentAction,
+    content: dict | None = None,
 ) -> None:
     require_consent_action(db, current, memory.patient_id, action)
     if not consent_service.content_categories_are_allowed(
         db,
         memory.patient_id,
         memory.sensitivity_flags,
+    ):
+        raise HTTPException(status_code=403, detail="Consent prohibits this content category")
+    if content is not None and not consent_service.content_categories_are_allowed(
+        db, memory.patient_id, content.get("sensitivity_flags", []),
     ):
         raise HTTPException(status_code=403, detail="Consent prohibits this content category")
 
@@ -184,7 +189,10 @@ def submit_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
-    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
+    _require_memory_action(
+        db, current, memory, ConsentAction.MEMORIES_REVIEW,
+        memory_service.content_for_review(db, memory),
+    )
     try:
         memory_service.submit_for_review(db, memory, submitted_by=current.id)
     except ValueError as exc:
@@ -201,7 +209,10 @@ def approve_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
-    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
+    _require_memory_action(
+        db, current, memory, ConsentAction.MEMORIES_REVIEW,
+        memory_service.content_for_review(db, memory),
+    )
     try:
         memory_service.approve_memory(db, memory, reviewer=current.id)
     except ValueError as exc:
@@ -305,6 +316,8 @@ def edit_memory(
     _require_memory_action(db, current, memory, ConsentAction.MEMORIES_EDIT)
     changes = body.model_dump(exclude_unset=True)
     note = changes.pop("note", None)
+    content = {**memory_service.content_for_review(db, memory), **changes}
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_EDIT, content)
     try:
         memory_service.edit_memory(
             db, memory, actor=current.id, changes=changes, note=note,

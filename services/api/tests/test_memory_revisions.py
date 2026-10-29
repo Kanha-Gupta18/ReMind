@@ -1,11 +1,57 @@
 """Canonical memory revisions, review records, and structured context."""
 
+import pytest
+
 from app.core.database import SessionLocal
 from app.models.constants import IdentityStatus
 from app.models.knowledge import MemoryEventLink, MemoryPersonLink, MemoryPlaceLink
 from app.models.memory import Evidence, MemoryCard, MemoryReviewRecord, MemoryRevision
 from app.services import evidence_service
 from tests.conftest import auth
+from tests.test_consent_enforcement import _current_policy
+
+
+@pytest.mark.parametrize("action", ["edit", "submit", "approve"])
+def test_candidate_categories_follow_current_consent(client, tokens, action):
+    memory_id = _approved(client, tokens)
+    candidate_body = {"title": "Sensitive candidate", "sensitivity_flags": ["SERIOUS_ILLNESS"]}
+    if action != "edit":
+        assert client.patch(
+            f"/memories/{memory_id}", json=candidate_body,
+            headers=auth(tokens["reviewer"]),
+        ).status_code == 200
+    if action == "approve":
+        assert client.post(
+            f"/memories/{memory_id}/submit", headers=auth(tokens["reviewer"])
+        ).status_code == 200
+    policy = _current_policy(client, tokens["patient"])
+    policy["restrictions"]["prohibited_data_categories"] = ["SERIOUS_ILLNESS"]
+    assert client.post(
+        "/consent/directives", json=policy, headers=auth(tokens["patient"])
+    ).status_code == 201
+    response = (
+        client.patch(f"/memories/{memory_id}", json=candidate_body,
+                     headers=auth(tokens["reviewer"]))
+        if action == "edit" else
+        client.post(f"/memories/{memory_id}/{action}", headers=auth(tokens["reviewer"]))
+    )
+    assert response.status_code == 403
+    with SessionLocal() as db:
+        memory = db.get(MemoryCard, memory_id)
+        assert memory.title == "Original memory"
+        assert memory.sensitivity_flags == []
+        assert db.get(MemoryRevision, memory.approved_revision_id).status == "approved"
+        if action == "edit":
+            assert memory.candidate_revision_id is None
+            assert db.query(MemoryRevision).filter_by(memory_id=memory_id).count() == 1
+        else:
+            candidate = db.get(MemoryRevision, memory.candidate_revision_id)
+            assert candidate.status == ("draft" if action == "submit" else "awaiting_review")
+            decisions = db.query(MemoryReviewRecord).filter_by(revision_id=candidate.id).all()
+            assert [item.decision for item in decisions] == ([] if action == "submit" else ["submitted"])
+    assert client.get(
+        f"/memories/{memory_id}", headers=auth(tokens["patient"])
+    ).json()["title"] == "Original memory"
 
 
 def _approved(client, tokens, **overrides):
