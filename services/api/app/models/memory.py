@@ -97,6 +97,22 @@ class MemoryCard(Base):
     created_by = Column(String, ForeignKey("users.id"), nullable=True)
     approved_by = Column(String, ForeignKey("users.id"), nullable=True)
     approved_at = Column(DateTime(timezone=True), nullable=True)
+    approved_revision_id = Column(
+        String,
+        ForeignKey(
+            "memory_revisions.id", use_alter=True,
+            name="fk_memory_cards_approved_revision", ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+    candidate_revision_id = Column(
+        String,
+        ForeignKey(
+            "memory_revisions.id", use_alter=True,
+            name="fk_memory_cards_candidate_revision", ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
 
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -117,11 +133,26 @@ class MemoryRevision(Base):
 
     revision_number = Column(Integer, default=1)
     content = Column(JSON, nullable=True)  # {title, narrative, media_urls, ...}
+    change_note = Column(String, nullable=True)
     status = Column(String, default="draft")  # draft|approved|rejected|superseded
     superseded_by_id = Column(String, ForeignKey("memory_revisions.id"), nullable=True)
 
     authored_by = Column(String, ForeignKey("users.id"), nullable=True)
 
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class MemoryReviewRecord(Base):
+    """An append-only submission or review decision for one revision."""
+
+    __tablename__ = "memory_review_records"
+
+    id = Column(String, primary_key=True, default=new_id)
+    memory_id = Column(String, ForeignKey("memory_cards.id"), nullable=False)
+    revision_id = Column(String, ForeignKey("memory_revisions.id"), nullable=False)
+    decision = Column(String, nullable=False)
+    reason = Column(String, nullable=True)
+    actor_id = Column(String, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
 
@@ -137,6 +168,11 @@ class Evidence(Base):
 
     id = Column(String, primary_key=True, default=new_id)
     memory_id = Column(String, ForeignKey("memory_cards.id"), nullable=False)
+    revision_id = Column(
+        String,
+        ForeignKey("memory_revisions.id", name="fk_evidence_revision", ondelete="SET NULL"),
+        nullable=True,
+    )
     source_id = Column(String, ForeignKey("sources.id"), nullable=True)
 
     evidence_type = Column(String, nullable=False)  # EvidenceType
@@ -144,5 +180,9 @@ class Evidence(Base):
     confidence = Column(Float, nullable=True)
     extractor_version = Column(String, nullable=True)
     review_status = Column(String, default=EvidenceReviewStatus.PENDING.value)
+    reviewed_by = Column(
+        String, ForeignKey("users.id", name="fk_evidence_reviewer"), nullable=True
+    )
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=utcnow)

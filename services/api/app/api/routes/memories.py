@@ -30,11 +30,18 @@ from app.models.constants import (
     EvidenceReviewStatus,
     MemoryStatus,
     Role,
-    Visibility,
 )
-from app.models.memory import MemoryCard
+from app.models.knowledge import Event, Place
+from app.models.memory import Evidence, MemoryCard
+from app.models.people import Person
 from app.models.user import User
-from app.schemas.memory import EngageAction, MemoryCreate, MemoryEdit, ReviewAction
+from app.schemas.memory import (
+    EngageAction,
+    EvidenceReviewAction,
+    MemoryCreate,
+    MemoryEdit,
+    ReviewAction,
+)
 from app.services import (
     audit_service,
     consent_service,
@@ -64,12 +71,17 @@ def _require_memory_action(
     current: User,
     memory: MemoryCard,
     action: ConsentAction,
+    content: dict | None = None,
 ) -> None:
     require_consent_action(db, current, memory.patient_id, action)
     if not consent_service.content_categories_are_allowed(
         db,
         memory.patient_id,
         memory.sensitivity_flags,
+    ):
+        raise HTTPException(status_code=403, detail="Consent prohibits this content category")
+    if content is not None and not consent_service.content_categories_are_allowed(
+        db, memory.patient_id, content.get("sensitivity_flags", []),
     ):
         raise HTTPException(status_code=403, detail="Consent prohibits this content category")
 
@@ -97,7 +109,7 @@ def list_memories(
             )["allowed"]
             if not allowed:
                 continue
-        out.append(_serialize(db, m, detail=False))
+        out.append(_serialize(db, m, detail=False, patient_view=_is_patient_viewer(current, m)))
     return {"items": out, "count": len(out)}
 
 
@@ -124,7 +136,7 @@ def get_memory(
         )
         if not result["allowed"]:
             raise HTTPException(status_code=403, detail=result["reason"])
-    return _serialize(db, memory, detail=True)
+    return _serialize(db, memory, detail=True, patient_view=_is_patient_viewer(current, memory))
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -145,20 +157,26 @@ def create_memory(
         body.sensitivity_flags,
     ):
         raise HTTPException(status_code=403, detail="Consent prohibits this content category")
-    memory = memory_service.create_memory_card(
-        db,
-        patient_id=patient_id,
-        title=body.title,
-        narrative=body.narrative,
-        memory_date=body.memory_date,
-        date_accuracy=body.date_accuracy,
-        tags=body.tags,
-        sensitivity_flags=body.sensitivity_flags,
-        media_urls=body.media_urls,
-        status=MemoryStatus.DRAFT.value,
-        created_by=current.id,
-    )
-    memory.visibility = body.visibility or Visibility.BOTH.value
+    try:
+        memory = memory_service.create_memory_card(
+            db,
+            patient_id=patient_id,
+            title=body.title,
+            narrative=body.narrative,
+            memory_date=body.memory_date,
+            date_accuracy=body.date_accuracy,
+            tags=body.tags,
+            sensitivity_flags=body.sensitivity_flags,
+            media_urls=body.media_urls,
+            visibility=body.visibility,
+            people_ids=body.people_ids,
+            place_ids=body.place_ids,
+            event_ids=body.event_ids,
+            status=MemoryStatus.DRAFT.value,
+            created_by=current.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
     return _serialize(db, memory, detail=True)
 
@@ -171,8 +189,14 @@ def submit_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
-    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
-    memory_service.submit_for_review(db, memory, submitted_by=current.id)
+    _require_memory_action(
+        db, current, memory, ConsentAction.MEMORIES_REVIEW,
+        memory_service.content_for_review(db, memory),
+    )
+    try:
+        memory_service.submit_for_review(db, memory, submitted_by=current.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.commit()
     return _serialize(db, memory, detail=False)
 
@@ -185,8 +209,14 @@ def approve_memory(
     scope: Annotated[str | None, Depends(get_patient_scope)],
 ):
     memory = _get_scoped(db, memory_id, scope)
-    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
-    memory_service.approve_memory(db, memory, reviewer=current.id)
+    _require_memory_action(
+        db, current, memory, ConsentAction.MEMORIES_REVIEW,
+        memory_service.content_for_review(db, memory),
+    )
+    try:
+        memory_service.approve_memory(db, memory, reviewer=current.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.commit()
     return _serialize(db, memory, detail=False)
 
@@ -201,7 +231,10 @@ def reject_memory(
 ):
     memory = _get_scoped(db, memory_id, scope)
     _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
-    memory_service.reject_memory(db, memory, reviewer=current.id, reason=body.reason)
+    try:
+        memory_service.reject_memory(db, memory, reviewer=current.id, reason=body.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.commit()
     return _serialize(db, memory, detail=False)
 
@@ -216,7 +249,10 @@ def dispute_memory(
 ):
     memory = _get_scoped(db, memory_id, scope)
     _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
-    memory_service.dispute_memory(db, memory, reviewer=current.id, reason=body.reason)
+    try:
+        memory_service.dispute_memory(db, memory, reviewer=current.id, reason=body.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.commit()
     return _serialize(db, memory, detail=False)
 
@@ -278,10 +314,16 @@ def edit_memory(
 ):
     memory = _get_scoped(db, memory_id, scope)
     _require_memory_action(db, current, memory, ConsentAction.MEMORIES_EDIT)
-    memory_service.edit_memory(
-        db, memory, actor=current.id,
-        title=body.title, narrative=body.narrative, tags=body.tags, note=body.note,
-    )
+    changes = body.model_dump(exclude_unset=True)
+    note = changes.pop("note", None)
+    content = {**memory_service.content_for_review(db, memory), **changes}
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_EDIT, content)
+    try:
+        memory_service.edit_memory(
+            db, memory, actor=current.id, changes=changes, note=note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.commit()
     return _serialize(db, memory, detail=True)
 
@@ -296,9 +338,30 @@ def get_revisions(
     memory = _get_scoped(db, memory_id, scope)
     _require_memory_action(db, current, memory, ConsentAction.MEMORIES_VIEW)
     revisions = memory_service.revision_history(db, memory.id)
+    reviews = memory_service.review_history(db, memory.id)
+    reviews_by_revision: dict[str, list] = {}
+    for review in reviews:
+        reviews_by_revision.setdefault(review.revision_id, []).append(review)
+    actor_ids = {review.actor_id for review in reviews if review.actor_id}
+    actor_ids.update(revision.authored_by for revision in revisions if revision.authored_by)
+    actor_names = dict(
+        db.query(User.id, User.full_name).filter(User.id.in_(actor_ids)).all()
+    ) if actor_ids else {}
     return {"items": [
-        {"revision_number": r.revision_number, "status": r.status,
+        {"id": r.id, "revision_number": r.revision_number, "status": r.status,
          "content": r.content, "authored_by": r.authored_by,
+         "authored_by_name": actor_names.get(r.authored_by),
+         "change_note": r.change_note,
+         "is_approved": r.id == memory.approved_revision_id,
+         "is_candidate": r.id == memory.candidate_revision_id,
+         "structured_context": _structured_context(db, r.content or {}, False),
+         "reviews": [
+             {"id": item.id, "decision": item.decision, "reason": item.reason,
+              "actor_id": item.actor_id,
+              "actor_name": actor_names.get(item.actor_id),
+              "created_at": item.created_at.isoformat()}
+             for item in reviews_by_revision.get(r.id, [])
+         ],
          "created_at": r.created_at.isoformat()}
         for r in revisions
     ]}
@@ -320,16 +383,56 @@ def get_evidence(
                       if p["evidence"].review_status == EvidenceReviewStatus.ACCEPTED.value
                       and (not p["evidence"].source_id or
                            (p["source"] and p["source"].patient_id == memory.patient_id
-                            and p["source"].deletion_status == DeletionStatus.ACTIVE.value))]
+                           and p["source"].deletion_status == DeletionStatus.ACTIVE.value))]
+    reviewer_ids = {
+        item["evidence"].reviewed_by for item in provenance
+        if item["evidence"].reviewed_by
+    }
+    reviewer_names = dict(
+        db.query(User.id, User.full_name).filter(User.id.in_(reviewer_ids)).all()
+    ) if reviewer_ids else {}
     return {"items": [
         {"id": p["evidence"].id,
          "claim": p["evidence"].claim,
          "evidence_type": p["evidence"].evidence_type,
          "confidence": p["evidence"].confidence,
          "review_status": p["evidence"].review_status,
+         "revision_id": p["evidence"].revision_id,
+         "reviewed_by": p["evidence"].reviewed_by,
+         "reviewed_by_name": reviewer_names.get(p["evidence"].reviewed_by),
+         "reviewed_at": (p["evidence"].reviewed_at.isoformat()
+                         if p["evidence"].reviewed_at else None),
          "source_file": p["source"].file_name if p["source"] else None}
         for p in provenance
     ]}
+
+
+@router.post("/{memory_id}/evidence/{evidence_id}/review")
+def review_evidence(
+    memory_id: str,
+    evidence_id: str,
+    body: EvidenceReviewAction,
+    db: Annotated[Session, Depends(get_db)],
+    current: Annotated[User, Depends(require_roles(*_REVIEW_ROLES))],
+    scope: Annotated[str | None, Depends(get_patient_scope)],
+):
+    memory = _get_scoped(db, memory_id, scope)
+    _require_memory_action(db, current, memory, ConsentAction.MEMORIES_REVIEW)
+    evidence = db.get(Evidence, evidence_id)
+    if evidence is None or evidence.memory_id != memory.id:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    evidence_service.update_evidence_review(db, evidence.id, body.status, current.id)
+    audit_service.log_action(
+        db, current.id, body.status.lower(), "evidence", evidence.id,
+        {"memory_id": memory.id, "revision_id": evidence.revision_id},
+    )
+    db.commit()
+    return {
+        "id": evidence.id, "review_status": evidence.review_status,
+        "reviewed_by": evidence.reviewed_by,
+        "reviewed_by_name": current.full_name,
+        "reviewed_at": evidence.reviewed_at.isoformat(),
+    }
 
 
 @router.post("/{memory_id}/engage")
@@ -366,31 +469,69 @@ def _require_release(db: Session, memory: MemoryCard, current: User) -> None:
         raise HTTPException(status_code=403, detail="Memory is not available to the patient")
 
 
-def _serialize(db: Session, m: MemoryCard, detail: bool) -> dict:
+def _serialize(
+    db: Session, m: MemoryCard, detail: bool, patient_view: bool = False,
+) -> dict:
+    content = (
+        memory_service.content_for_delivery(db, m)
+        if patient_view else memory_service.content_for_review(db, m)
+    ) or {}
     data = {
         "id": m.id,
         "patient_id": m.patient_id,
-        "title": m.title,
-        "status": m.status,
-        "visibility": m.visibility,
-        "date_accuracy": m.date_accuracy,
-        "confidence_score": m.confidence_score,
-        "confidence_band": m.confidence_breakdown.get("band") if m.confidence_breakdown else None,
-        "explanation": m.explanation,
-        "sensitivity_flags": m.sensitivity_flags or [],
-        "tags": m.tags or [],
-        "memory_date": m.memory_date.isoformat() if m.memory_date else None,
+        "title": content.get("title", m.title),
+        "status": MemoryStatus.APPROVED.value if patient_view else m.status,
+        "visibility": content.get("visibility", m.visibility),
+        "date_accuracy": content.get("date_accuracy", m.date_accuracy),
+        "confidence_score": content.get("confidence_score", m.confidence_score),
+        "confidence_band": ((content.get("confidence_breakdown") or {}).get("band")),
+        "explanation": content.get("explanation", m.explanation),
+        "sensitivity_flags": content.get("sensitivity_flags", m.sensitivity_flags or []),
+        "tags": content.get("tags", m.tags or []),
+        "memory_date": content.get("memory_date"),
         "created_by": m.created_by,
         "approved_by": m.approved_by,
         "approved_at": m.approved_at.isoformat() if m.approved_at else None,
         "created_at": m.created_at.isoformat(),
+        "structured_context": _structured_context(db, content, patient_view),
     }
+    if not patient_view:
+        data.update({
+            "approved_revision_id": m.approved_revision_id,
+            "candidate_revision_id": m.candidate_revision_id,
+            "has_pending_revision": m.candidate_revision_id is not None,
+        })
     if detail:
         data.update({
-            "narrative": m.narrative,
-            "media_urls": m.media_urls or [],
-            "contradictions": m.contradictions or [],
-            "confidence_breakdown": m.confidence_breakdown,
-            "model_version": m.model_version,
+            "narrative": content.get("narrative"),
+            "media_urls": content.get("media_urls", []),
+            "contradictions": content.get("contradictions", []),
+            "confidence_breakdown": content.get("confidence_breakdown"),
+            "model_version": content.get("model_version"),
         })
     return data
+
+
+def _structured_context(db: Session, content: dict, patient_view: bool) -> dict:
+    people = (
+        db.query(Person).filter(Person.id.in_(content.get("people_ids") or [])).all()
+        if content.get("people_ids") else []
+    )
+    if patient_view:
+        people = [
+            person for person in people
+            if patient_delivery_service.person_is_visible(db, person)
+        ]
+    places = (
+        db.query(Place).filter(Place.id.in_(content.get("place_ids") or [])).all()
+        if content.get("place_ids") else []
+    )
+    events = (
+        db.query(Event).filter(Event.id.in_(content.get("event_ids") or [])).all()
+        if content.get("event_ids") else []
+    )
+    return {
+        "people": [{"id": item.id, "name": item.name} for item in people],
+        "places": [{"id": item.id, "name": item.name} for item in places],
+        "events": [{"id": item.id, "name": item.name} for item in events],
+    }

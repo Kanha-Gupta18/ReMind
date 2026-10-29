@@ -76,8 +76,15 @@ def evaluate_release(
     if memory.status == MemoryStatus.DELETED.value:
         return {"allowed": False, "display_level": "hidden", "reason": "Memory deleted"}
     if viewer_role is None or viewer_role == Role.PATIENT.value:
-        if memory.status != MemoryStatus.APPROVED.value:
+        if memory.approved_revision_id is None:
             return {"allowed": False, "display_level": "hidden", "reason": "Memory is not approved"}
+        if memory.status in {
+            MemoryStatus.DISPUTED.value,
+            MemoryStatus.ARCHIVED.value,
+            MemoryStatus.RESTRICTED.value,
+        }:
+            return {"allowed": False, "display_level": "hidden",
+                    "reason": f"Memory is {memory.status.lower()}"}
         if memory.visibility not in {Visibility.PATIENT.value, Visibility.BOTH.value}:
             return {"allowed": False, "display_level": "hidden", "reason": "Memory is not patient-visible"}
     if memory.status == MemoryStatus.RESTRICTED.value:

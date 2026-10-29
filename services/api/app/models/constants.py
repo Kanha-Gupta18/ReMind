@@ -288,9 +288,20 @@ class RevisionStatus(str, Enum):
     """Lifecycle of a memory revision (spec §39)."""
 
     DRAFT = "draft"
+    AWAITING_REVIEW = "awaiting_review"
     APPROVED = "approved"
     REJECTED = "rejected"
+    DISPUTED = "disputed"
     SUPERSEDED = "superseded"
+
+
+class ReviewDecision(str, Enum):
+    """Append-only decisions recorded against a memory revision."""
+
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    DISPUTED = "disputed"
 
 
 class NotificationType(str, Enum):

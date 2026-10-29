@@ -44,7 +44,8 @@ from app.models.constants import ConsentAction, Role, SafetyLevel, SourceType
 from app.models.consent import ConsentDirective
 from app.models.conversation import ConversationMessage, ConversationSession, SafetyEvent
 from app.models.graph import GraphEdge, GraphNode
-from app.models.memory import Evidence, MemoryCard, MemoryRevision, Source
+from app.models.knowledge import Event, MemoryEventLink, MemoryPersonLink, MemoryPlaceLink, Place
+from app.models.memory import Evidence, MemoryCard, MemoryReviewRecord, MemoryRevision, Source
 from app.models.people import FaceMatch, Person
 from app.models.user import AuthSession, AuditLog, PatientAccessGrant, PatientProfile, ThirdPartyConsent, User
 
@@ -125,7 +126,6 @@ def wipe(db: Session, user_ids: list[str]) -> None:
     db.query(ConversationMessage).delete(synchronize_session=False)
     for c in [SafetyEvent, ConversationSession, GraphEdge, GraphNode, FaceMatch]:
         db.query(c).filter(c.patient_id.in_(user_ids)).delete(synchronize_session=False)
-    db.query(Person).filter(Person.patient_id.in_(user_ids)).delete(synchronize_session=False)
     db.query(ThirdPartyConsent).filter(ThirdPartyConsent.patient_id.in_(user_ids)).delete(
         synchronize_session=False)
     db.query(ConsentDirective).filter(ConsentDirective.patient_id.in_(user_ids)).delete(
@@ -136,14 +136,25 @@ def wipe(db: Session, user_ids: list[str]) -> None:
     )).delete(
         synchronize_session=False)
     memory_ids = db.query(MemoryCard.id).filter(MemoryCard.patient_id.in_(user_ids))
-    db.query(MemoryRevision).filter(MemoryRevision.memory_id.in_(memory_ids)).delete(
-        synchronize_session=False)
     db.query(Evidence).filter(Evidence.memory_id.in_(memory_ids)).delete(
         synchronize_session=False)
+    db.query(MemoryReviewRecord).filter(MemoryReviewRecord.memory_id.in_(memory_ids)).delete(
+        synchronize_session=False)
+    for link in (MemoryPersonLink, MemoryPlaceLink, MemoryEventLink):
+        db.query(link).filter(link.memory_id.in_(memory_ids)).delete(synchronize_session=False)
     db.query(EngagementLog).filter(EngagementLog.patient_id.in_(user_ids)).delete(
+        synchronize_session=False)
+    db.query(MemoryCard).filter(MemoryCard.patient_id.in_(user_ids)).update(
+        {MemoryCard.approved_revision_id: None, MemoryCard.candidate_revision_id: None},
+        synchronize_session=False,
+    )
+    db.query(MemoryRevision).filter(MemoryRevision.memory_id.in_(memory_ids)).delete(
         synchronize_session=False)
     db.query(MemoryCard).filter(MemoryCard.patient_id.in_(user_ids)).delete(
         synchronize_session=False)
+    db.query(Place).filter(Place.patient_id.in_(user_ids)).delete(synchronize_session=False)
+    db.query(Event).filter(Event.patient_id.in_(user_ids)).delete(synchronize_session=False)
+    db.query(Person).filter(Person.patient_id.in_(user_ids)).delete(synchronize_session=False)
     db.query(Source).filter(Source.patient_id.in_(user_ids)).delete(synchronize_session=False)
     db.query(AuditLog).filter(AuditLog.user_id.in_(user_ids)).delete(synchronize_session=False)
     db.commit()

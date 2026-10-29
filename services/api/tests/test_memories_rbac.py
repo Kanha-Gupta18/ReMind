@@ -96,6 +96,8 @@ def test_edit_revisions_restrict_dispute_archive(client, tokens):
     r = client.get(f"/memories/{mem_id}/revisions", headers=auth(tokens["reviewer"]))
     assert r.status_code == 200 and len(r.json()["items"]) >= 2
 
+    r = client.post(f"/memories/{mem_id}/submit", headers=auth(tokens["reviewer"]))
+    assert r.status_code == 200 and r.json()["status"] == "AWAITING_REVIEW"
     r = client.post(f"/memories/{mem_id}/approve", headers=auth(tokens["reviewer"]))
     assert r.status_code == 200 and r.json()["status"] == "APPROVED"
 

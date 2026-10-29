@@ -149,18 +149,22 @@ def test_legacy_external_and_other_source_paths_are_not_served(client, tokens):
 
 
 def _approve_source_for_patient(source_id, patient_id):
+    from app.services import memory_service
+
     with SessionLocal() as db:
-        memory = MemoryCard(
+        memory = memory_service.create_memory_card(
+            db,
             patient_id=patient_id,
             title="Approved photo",
             narrative="A family day by the sea.",
-            status=MemoryStatus.APPROVED.value,
             visibility=Visibility.BOTH.value,
+            created_by=patient_id,
         )
-        db.add(memory)
-        db.flush()
+        memory_service.submit_for_review(db, memory, patient_id)
+        memory_service.approve_memory(db, memory, patient_id)
         db.add(Evidence(
             memory_id=memory.id,
+            revision_id=memory.approved_revision_id,
             source_id=source_id,
             evidence_type="family_statement",
             claim="The family confirmed this photograph.",
