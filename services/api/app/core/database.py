@@ -5,7 +5,7 @@ from app.core.config import settings
 
 # SQLAlchemy engine: the connection pool to PostgreSQL.
 # pool_pre_ping ensures stale connections are detected and replaced.
-engine = create_engine(settings.database_url, pool_pre_ping=True)
+engine = create_engine(settings.database_url, pool_pre_ping=True, connect_args={"connect_timeout": 5})
 
 # SessionLocal: one factory for creating DB sessions.
 # Each request gets its own session (see get_db below).

@@ -29,6 +29,8 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 # rather than creating two different temp dirs.
 TEST_STORAGE_DIR = runtime.STORAGE_DIR
 os.environ["STORAGE_DIR"] = TEST_STORAGE_DIR
+os.environ["STORAGE_BACKEND"] = "local"
+os.environ["ENVIRONMENT"] = "test"
 
 import pytest
 from fastapi.testclient import TestClient

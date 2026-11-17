@@ -8,6 +8,8 @@ __pycache__/
 
 # Secrets - never commit real credentials
 .env
+.env.*
+!.env.example
 
 # Runtime data
 storage/

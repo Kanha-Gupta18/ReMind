@@ -10,6 +10,12 @@ permissions:
   contents: read
 
 jobs:
+  api-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --tag remind-api ./services/api
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

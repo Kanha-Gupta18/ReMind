@@ -1,5 +1,31 @@
 # Build progress
 
+## Hackathon H1 deployment foundation
+
+Branch: `codex/h1-deployment-foundation`, based on Section 4 while its PR awaits
+review. The full numbered roadmap remains unchanged.
+
+- Private storage uses Supabase for cloud previews and local files in development.
+  Downloads retain relationship, consent, and patient release checks. Public
+  buckets and mismatched source references fail closed. Local files are not
+  automatically migrated.
+- Uploads reject empty files and files over 6 MiB. Failed upload transactions
+  attempt to remove their newly stored object. Full derivative deletion remains
+  Section 5; media validation and real processing are later hackathon work.
+- Production settings require secure cookies, explicit HTTPS frontend origins,
+  a non-development signing secret, TLS PostgreSQL, and persistent storage.
+- `/health` returns 503 when PostgreSQL is unavailable. `/ready` also checks the
+  migration head and private bucket availability, exposing only component states.
+- A non-root API Dockerfile and `render.yaml` define a free API/static-site setup.
+  CI includes the API image build. See [Deployment](DEPLOYMENT.md) for setup and
+  the mandatory restart/download smoke test.
+- Hosting accounts must still be created by the user. A real preview and restart
+  test remain necessary before H1's cloud acceptance checkpoint can pass.
+- Local verification: 169 backend tests passed, including 24 deployment/storage
+  cases. The frontend production build and patch whitespace check passed; the
+  Render YAML parsed with no duplicate keys. Docker is unavailable locally, so
+  the image build is delegated to GitHub CI, not claimed as a local result.
+
 Sections are complete only after their acceptance checks pass. This file records
 implementation status separately from planned functionality.
 

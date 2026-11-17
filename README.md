@@ -155,4 +155,7 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## Live Demo
 
+The hackathon preview setup is documented in [Deployment](docs/DEPLOYMENT.md).
+Release checkpoints are tracked in [Hackathon release](docs/HACKATHON_RELEASE.md).
+
 Deployment in progress — link will be added on first Railway/Render deploy.
