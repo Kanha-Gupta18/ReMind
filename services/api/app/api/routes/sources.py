@@ -9,14 +9,18 @@ Administrators manage accounts and operations, but cannot read patient content.
 """
 
 import hashlib
+import logging
 import mimetypes
 import os
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.ai import reconstruction
@@ -32,7 +36,7 @@ from app.models.constants import ConsentAction, DeletionStatus, Role
 from app.models.memory import Source
 from app.models.user import User
 from app.schemas.source import SourceCreate
-from app.services import audit_service, consent_service, notification_service, patient_delivery_service
+from app.services import audit_service, consent_service, notification_service, patient_delivery_service, storage_service
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -80,14 +84,12 @@ async def upload_source_file(
     current: Annotated[User, Depends(require_roles(*_UPLOAD_ROLES))] = None,
     scope: Annotated[str | None, Depends(get_patient_scope)] = None,
 ):
-    """Upload a real file. The API computes the checksum, stores the bytes
-    under {storage_dir}/{patient_id}/{source_id}/, and infers file_type from
-    the extension (spec §5 provenance: checksum, size, storage path)."""
+    """Store bounded source bytes with a checksum in the configured private store."""
     pid = _scope_patient(scope, current, patient_id)
     require_consent_action(db, current, pid, ConsentAction.SOURCES_UPLOAD)
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing file name")
-    safe_name = Path(file.filename).name
+    safe_name = Path(file.filename.replace("\\", "/")).name
     file_type = _infer_file_type(safe_name)
     if file_type is None:
         raise HTTPException(
@@ -97,7 +99,11 @@ async def upload_source_file(
         )
     if not consent_service.source_type_is_allowed(db, current, pid, file_type):
         raise HTTPException(status_code=403, detail="This source type is not allowed by consent")
-    content = await file.read()
+    content = await file.read(settings.max_upload_bytes + 1)
+    if len(content) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail="File exceeds the upload size limit")
+    if not content:
+        raise HTTPException(status_code=400, detail="File is empty")
     checksum = hashlib.sha256(content).hexdigest()
 
     source = Source(
@@ -112,16 +118,26 @@ async def upload_source_file(
     db.add(source)
     db.flush()
 
-    storage_root = Path(settings.storage_dir) / pid / source.id
-    storage_root.mkdir(parents=True, exist_ok=True)
-    dest = storage_root / safe_name
-    dest.write_bytes(content)
-    source.storage_path = str(dest)
+    try:
+        source.storage_path = await run_in_threadpool(storage_service.write_source, source, content)
+    except (storage_service.StorageUnavailable, OSError):
+        raise HTTPException(status_code=503, detail="File storage is temporarily unavailable") from None
 
-    audit_service.log_action(db, current.id, "uploaded", "source", source.id,
-                             {"file_name": safe_name, "file_type": file_type,
-                              "file_size": len(content)})
-    db.commit()
+    stored = SimpleNamespace(id=source.id, patient_id=source.patient_id,
+                             file_name=source.file_name, storage_path=source.storage_path)
+    try:
+        audit_service.log_action(db, current.id, "uploaded", "source", source.id,
+                                 {"file_name": safe_name, "file_type": file_type,
+                                  "file_size": len(content)})
+        db.commit()
+    except Exception:
+        # Preserve the original database failure, but compensate stored bytes.
+        try:
+            await run_in_threadpool(storage_service.remove_source, stored)
+        except Exception:
+            logging.getLogger(__name__).error("Upload cleanup failed; check storage for orphaned objects")
+        db.rollback()
+        raise
     return _serialize(source, detail=True)
 
 
@@ -242,15 +258,18 @@ def get_source_file(
     source = _get_scoped(db, source_id, scope)
     require_consent_action(db, current, source.patient_id, ConsentAction.SOURCES_VIEW)
     _require_source_read(db, source, current)
-    if not source.storage_path:
-        raise HTTPException(status_code=404, detail="Source file is not stored")
-    path = Path(source.storage_path).resolve()
-    root = Path(settings.storage_dir).resolve()
-    expected = (root / source.patient_id / source.id).resolve()
-    if not expected.is_relative_to(root) or not path.is_relative_to(expected) or not path.is_file():
-        raise HTTPException(status_code=404, detail="Source file is not stored")
+    try:
+        content = storage_service.read_source(source)
+    except storage_service.StoredFileMissing:
+        raise HTTPException(status_code=404, detail="Source file is not stored") from None
+    except (storage_service.StorageUnavailable, OSError):
+        raise HTTPException(status_code=503, detail="File storage is temporarily unavailable") from None
     media_type = mimetypes.guess_type(source.file_name)[0] or "application/octet-stream"
-    return FileResponse(path, media_type=media_type, filename=source.file_name)
+    return Response(content, media_type=media_type, headers={
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(source.file_name, safe='')}",
+    })
 
 
 @router.delete("/{source_id}")
